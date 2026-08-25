@@ -39,3 +39,20 @@ yarn-error.log*
 # typescript
 *.tsbuildinfo
 next-env.d.ts
+
+# Local agent configuration and unrelated personal design collateral kept in
+# this working folder. The Rubberduck site does not depend on these files.
+/.agents/
+/.claude/
+/.codex/
+/assets/wedding/
+/assets/wedding-car-sign/
+/Sunny_Weds_Gauri_*.docx
+/.floral_wedding_banner_background_a4.png
+/.pink_wedding_banner_background_a4.png
+/.wedding_car_sign_background_a4_landscape.png
+/.wedding_invitation_background.png
+/.wedding_invitation_background_revised.png
+/build_wedding_car_sign.py
+/build_wedding_car_sign_fixed.py
+/build_wedding_invitation.py

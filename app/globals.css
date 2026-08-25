@@ -1,8 +1,8 @@
 @import "tailwindcss";
 
 :root {
-  --background: #ffffff;
-  --foreground: #171717;
+  --background: #65c9dc;
+  --foreground: #f8fcff;
 }
 
 @theme inline {
@@ -10,17 +10,343 @@
   --color-foreground: var(--foreground);
   --font-sans: var(--font-geist-sans);
   --font-mono: var(--font-geist-mono);
+  --font-heading: var(--font-heading);
+  --font-display: var(--font-display);
 }
 
 @media (prefers-color-scheme: dark) {
   :root {
-    --background: #0a0a0a;
-    --foreground: #ededed;
+    --background: #65c9dc;
+    --foreground: #f8fcff;
   }
 }
 
 body {
-  background: var(--background);
+  background:
+    radial-gradient(80rem 42rem at 82% -10%, rgb(232 255 248 / 0.45), transparent 62%),
+    linear-gradient(180deg, #a7e2e8 0%, var(--background) 52%, #4caec3 100%);
+  background-attachment: fixed;
   color: var(--foreground);
-  font-family: Arial, Helvetica, sans-serif;
+  font-family: var(--font-sans), system-ui, Arial, sans-serif;
+}
+
+/* Signifier for the horizontal-scroll pill in PageContent. Nudges the → glyph
+ * a few pixels and fades opacity so users know there's more content to the
+ * right — Norman's "discoverability" over "did I miss something?". */
+@keyframes duckScrollHint {
+  0%, 100% { opacity: 0.55; transform: translate(0, -50%); }
+  50%      { opacity: 1;    transform: translate(4px, -50%); }
+}
+
+/* Bricolage Grotesque has a full mixed-case glyph set, so — unlike the old
+ * display face — we let headings render in their natural case. A hair of
+ * negative tracking gives the display sizes the tight, editorial feel that
+ * reads as "crafted" rather than default. (This overrides Tailwind's
+ * tracking utilities on heading elements, which is intentional so the
+ * wordmark and nav stay visually consistent.) */
+.font-heading {
+  letter-spacing: -0.02em;
+}
+
+/* ---------------------------------------------------------------------------
+ * PageContent redesign helpers. Additive only — nothing above is touched.
+ * All motion here is CSS transform/opacity so it stays on the compositor and
+ * holds 60fps next to the live WebGL water scene.
+ * ------------------------------------------------------------------------- */
+
+/* Staggered slide entrance. Each card in a deck sets `--i` (its index) so the
+ * slides rise + fade in sequence once the panel becomes visible, reinforcing
+ * left-to-right reading order (Craft: motion that orients, not decorates). */
+@keyframes duckSlideIn {
+  from {
+    opacity: 0;
+    transform: translateY(14px);
+  }
+  to {
+    opacity: 1;
+    transform: translateY(0);
+  }
+}
+
+.duck-slide {
+  opacity: 0;
+  animation: duckSlideIn 0.5s cubic-bezier(0.22, 1, 0.36, 1) forwards;
+  animation-delay: calc(var(--i, 0) * 70ms);
+}
+
+@media (prefers-reduced-motion: reduce) {
+  .duck-slide {
+    opacity: 1;
+    animation: none;
+  }
+}
+
+/* Live-availability dot: a slow, gentle breathing glow. Calmer than a hard
+ * ping — signals "active" without pulling the eye off the primary action. */
+@keyframes duckPulse {
+  0%, 100% { opacity: 0.35; transform: scale(1); }
+  50%      { opacity: 0.9;  transform: scale(1.9); }
+}
+.duck-pulse {
+  animation: duckPulse 2.4s ease-in-out infinite;
+}
+
+@media (prefers-reduced-motion: reduce) {
+  .duck-pulse {
+    animation: none;
+  }
+}
+
+/* ---------------------------------------------------------------------------
+ * Content-page (blue) design tokens + story-system helpers.
+ * The rebuilt About/Work/Contact pages are vertical, blue, and read as a story.
+ * Four blue "tones" cycle down each page so no two adjacent sections share a
+ * background — and text stays readable without swapping the pond for a flat
+ * white page. A dark teal glass layer gives white copy a reliable contrast
+ * floor while the live scenery remains visible. Yellow stays a rationed signal
+ * accent.
+ * ------------------------------------------------------------------------- */
+:root {
+  --rd-sky: #4ec5f5; /* hero blue */
+  --rd-ocean: #1f8fd0; /* mid */
+  --rd-deep: #0a4f87; /* deep */
+  --rd-ink: #f8fcff; /* editorial copy */
+  --rd-text-muted: rgb(248 252 255 / 0.74);
+  --rd-surface: rgb(3 33 51 / 0.64);
+  --rd-surface-strong: rgb(3 25 42 / 0.8);
+  --rd-line: rgb(255 255 255 / 0.2);
+  --rd-yellow: #facc15; /* signal accent (use sparingly) */
+}
+
+/* Route changes stay deliberately short: the departing story dissolves into
+ * pond-blue, then the incoming route resolves from a soft blur. The animation
+ * only touches compositor-friendly properties, leaving the WebGL scene free to
+ * keep rendering beneath it. */
+.rd-route-shell[data-route-kind="story"] {
+  transition:
+    opacity 180ms ease-in,
+    filter 180ms ease-in,
+    transform 180ms ease-in;
+}
+
+.rd-route-shell[data-route-kind="story"][data-route-phase="leaving"] {
+  opacity: 0;
+  filter: blur(8px);
+  transform: translateY(-6px);
+}
+
+@keyframes rd-route-enter {
+  from {
+    opacity: 0;
+    filter: blur(12px);
+    transform: translateY(10px);
+  }
+  to {
+    opacity: 1;
+    filter: blur(0);
+    transform: translateY(0);
+  }
+}
+
+.rd-route-shell[data-route-kind="story"][data-route-phase="entering"] {
+  animation: rd-route-enter 560ms cubic-bezier(0.16, 1, 0.3, 1) both;
+}
+
+.rd-route-wash {
+  position: fixed;
+  inset: 0;
+  z-index: 60;
+  pointer-events: none;
+  opacity: 0;
+  background:
+    radial-gradient(64rem 42rem at 76% 10%, rgb(57 187 207 / 0.22), transparent 66%),
+    linear-gradient(180deg, rgb(3 47 66 / 0.82), rgb(3 25 42 / 0.94));
+  transition: opacity 180ms ease-in-out;
+}
+
+.rd-route-wash[data-visible="true"] {
+  opacity: 1;
+}
+
+.rd-overlay-story[data-page-phase="leaving"] {
+  opacity: 0;
+  filter: blur(8px);
+  transform: translateY(-6px);
+  transition:
+    opacity 180ms ease-in,
+    filter 180ms ease-in,
+    transform 180ms ease-in;
+}
+
+@keyframes rd-overlay-story-enter {
+  from {
+    opacity: 0;
+    filter: blur(12px);
+    transform: translateY(10px);
+  }
+  to {
+    opacity: 1;
+    filter: blur(0);
+    transform: translateY(0);
+  }
+}
+
+.rd-overlay-story[data-page-phase="entering"] {
+  animation: rd-overlay-story-enter 560ms cubic-bezier(0.16, 1, 0.3, 1)
+    var(--rd-story-enter-delay, 0ms) both;
+}
+
+@media (prefers-reduced-motion: reduce) {
+  .rd-route-shell[data-route-kind="story"],
+  .rd-route-shell[data-route-kind="story"][data-route-phase="leaving"],
+  .rd-route-shell[data-route-kind="story"][data-route-phase="entering"],
+  .rd-overlay-story[data-page-phase="leaving"],
+  .rd-overlay-story[data-page-phase="entering"] {
+    animation: none;
+    filter: none;
+    opacity: 1;
+    transform: none;
+    transition: none;
+  }
+
+  .rd-route-wash {
+    transition: none;
+  }
+}
+
+/* Story content sits directly on the live pond rather than replacing it with
+ * a white sheet. Individual cards supply any local contrast they need, so the
+ * atmosphere remains continuous from the interactive scene into the story. */
+.rd-story {
+  position: relative;
+  isolation: isolate;
+  min-height: 100%;
+  overflow: clip;
+  color: var(--rd-ink);
+  background:
+    radial-gradient(72rem 34rem at 84% 4%, rgb(55 188 208 / 0.11), transparent 64%),
+    linear-gradient(180deg, rgb(3 47 66 / 0.56), rgb(3 30 48 / 0.68));
+}
+
+.rd-story-section {
+  position: relative;
+  min-width: 0;
+}
+
+.rd-story-section:nth-of-type(even) {
+  border-block: 1px solid var(--rd-line);
+  background: linear-gradient(
+    90deg,
+    rgb(255 255 255 / 0.07),
+    rgb(255 255 255 / 0.018) 54%,
+    rgb(255 255 255 / 0.06)
+  );
+}
+
+.rd-story-section__inner {
+  position: relative;
+}
+
+/* One pond-glass system. The tone prop remains useful for story semantics, but
+ * no section falls back to an unrelated opaque component background. */
+.tone-sky,
+.tone-ocean,
+.tone-deep,
+.tone-ink {
+  background: transparent;
+  color: var(--rd-ink);
+}
+
+/* Primary story content is deliberately visible on first paint. It previously
+ * began at opacity: 0 and required client-side observers to appear, which is
+ * fragile on slow devices and unhelpful for crawlability. */
+.rd-reveal {
+  opacity: 1;
+  transform: none;
+}
+.rd-reveal.is-in {
+  opacity: 1;
+  transform: none;
+}
+@media (prefers-reduced-motion: reduce) {
+  .rd-reveal {
+    opacity: 1;
+    transform: none;
+    transition: none;
+  }
+}
+
+/* Split rows remain fully visible until the page has enough non-critical
+ * motion to justify reintroducing it without hiding editorial content. */
+.rd-slide-l,
+.rd-slide-r {
+  opacity: 1;
+  transform: none;
+}
+.is-in .rd-slide-l,
+.is-in .rd-slide-r {
+  opacity: 1;
+  transform: none;
+}
+@media (prefers-reduced-motion: reduce) {
+  .rd-slide-l,
+  .rd-slide-r {
+    opacity: 1;
+    transform: none;
+    transition: none;
+  }
+}
+
+/* Underwater atmosphere (UnderwaterFx): a slow caustic sheen + rising bubbles. */
+@keyframes rd-caustics-drift {
+  0% {
+    transform: translate3d(0, 0, 0) scale(1.1);
+  }
+  50% {
+    transform: translate3d(2%, 1.5%, 0) scale(1.2);
+  }
+  100% {
+    transform: translate3d(0, 0, 0) scale(1.1);
+  }
+}
+.rd-caustics {
+  background:
+    radial-gradient(
+      55% 40% at 30% 18%,
+      rgba(255, 255, 255, 0.16),
+      transparent 60%
+    ),
+    radial-gradient(
+      45% 38% at 72% 30%,
+      rgba(140, 225, 255, 0.14),
+      transparent 60%
+    );
+  animation: rd-caustics-drift 9s ease-in-out infinite;
+}
+
+@keyframes rd-bubble-rise {
+  0% {
+    transform: translateY(12vh) scale(0.7);
+    opacity: 0;
+  }
+  15% {
+    opacity: 0.5;
+  }
+  100% {
+    transform: translateY(-95vh) scale(1.15);
+    opacity: 0;
+  }
+}
+.rd-bubble {
+  bottom: 0;
+  animation-name: rd-bubble-rise;
+  animation-timing-function: ease-in;
+  animation-iteration-count: infinite;
+}
+
+@media (prefers-reduced-motion: reduce) {
+  .rd-caustics,
+  .rd-bubble {
+    animation: none;
+  }
 }

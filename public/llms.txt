@@ -1,0 +1,21 @@
+# Rubberduck
+
+> An independent studio that designs and builds focused websites, small digital products, and practical workflow automations.
+
+Rubberduck helps teams turn a good idea or repetitive process into something clear that people can use. The studio keeps the work deliberately focused: clear positioning, purposeful interfaces, and automations with a human handover when needed.
+
+## What we do
+
+- Websites that do a job: clear positioning, persuasive structure, and a considered next action.
+- Small products with a point: useful self-serve tools and interfaces that remove real friction.
+- Automations people can trust: connected workflows for repeatable work, with people in charge of exceptions.
+
+## Representative work
+
+- [Work](/work): two representative build shapes — a message concierge and a clear-next-step digital journey.
+- [About](/about): the studio approach.
+- [Contact](/contact): start a conversation.
+
+## Contact
+
+- Email: [hello@rubberduck.studio](mailto:hello@rubberduck.studio)
