@@ -18,13 +18,17 @@ import {
   waterInteractors,
   waterWakeImpulses,
 } from "../_state/waterInteraction";
-import { duckDive } from "../_state/waterLevel";
 import { StylizedWater, type WaterHandle } from "./StylizedWater";
 
 const CAMERA = {
   home: {
-    position: new THREE.Vector3(0, 0.62, 6.5),
-    lookAt: new THREE.Vector3(0, -0.02, 0),
+    // Mama is deliberately parked at x = -1.3 for the passing-ducks story.
+    // A landscape screen has enough horizontal field of view to accommodate
+    // that offset, but a portrait phone crops her out entirely when the lens
+    // stays at the pond origin. Centre the resting camera on the lead duck so
+    // every visitor meets the pond's character before choosing a view.
+    position: new THREE.Vector3(-1.3, 0.62, 6.5),
+    lookAt: new THREE.Vector3(-1.3, -0.02, 0),
   },
   underwater: {
     // Keep the viewer inside the pool volume (above its tiled floor) so the
@@ -46,16 +50,22 @@ const SANDBOX_CAMERA = {
 const HOME_FOV = 28;
 const SANDBOX_WHEEL_SENSITIVITY = 0.00115;
 
-// The duck camera sits just ahead of and above the selected duck's head. It
-// is a true duck-eye view instead of a close third-person shot that would
-// leave the rubber duck filling half the frame. Keeping it guided (rather
-// than OrbitControls) keeps the shoreline in view and steering unambiguous.
+// Desktop pilot mode sits just ahead of and above the selected duck's head.
+// On low-power / coarse-pointer devices, the same camera becomes a calm
+// third-person follow: it keeps the companion visible in-frame without asking
+// a phone visitor to steer with a virtual D-pad.
 const EXPLORER_FOV = 48;
 const EXPLORER_MIN_LEAD_DISTANCE = 0.15;
 const EXPLORER_LEAD_DISTANCE_SCALE = 0.18;
 const EXPLORER_MIN_EYE_HEIGHT = 0.46;
 const EXPLORER_EYE_HEIGHT_SCALE = 0.82;
 const EXPLORER_LOOK_AHEAD = 3.15;
+const FOLLOW_MIN_DISTANCE = 1.7;
+const FOLLOW_DISTANCE_SCALE = 2.7;
+const FOLLOW_MIN_HEIGHT = 0.82;
+const FOLLOW_HEIGHT_SCALE = 1.15;
+const FOLLOW_LOOK_AHEAD = 0.72;
+const FOLLOW_FOV = 40;
 const EXPLORER_POSITION_RESPONSE = 8.5;
 const EXPLORER_LOOK_RESPONSE = 10;
 const EXPLORER_HOME_RETURN_RESPONSE = 5;
@@ -124,22 +134,21 @@ export function WaterSurface() {
   const { camera, scene, gl, size, setDpr } = useThree();
   const lowPower = useMemo(() => detectLowPowerDevice(gl), [gl]);
   const pixelRatio = Math.min(gl.getPixelRatio(), lowPower ? 1 : 1.5);
-  // Refraction is a screen-space texture. The old 768px desktop cap was being
-  // magnified across high-DPR displays, which made the underwater world look
-  // pixelated. Desktop GPUs get a sharper target; phones retain a compact
-  // target and slower update cadence below.
-  // Desktop refraction is sampled at the renderer's effective resolution so
-  // a close duck reflection stays smooth on a retina display. Phones retain
-  // the compact half-resolution target below, where visual stability matters
-  // more than a costly full-size second scene render.
-  const captureScale = lowPower ? 0.5 : 1;
-  const captureCap = lowPower ? 640 : 2048;
+  // Refraction is a second render of the scene. On touch/low-power devices it
+  // deliberately uses a compact target and updates less often: the surface
+  // shader still moves continuously, while the captured world is calm enough
+  // that a 10–15fps refresh is visually stable. This keeps the pond from
+  // spending most of its mobile frame budget rendering itself twice.
+  const captureScale = lowPower ? 0.4 : 1;
+  const captureCap = lowPower ? 448 : 2048;
+  const minCaptureWidth = lowPower ? 160 : 192;
+  const minCaptureHeight = lowPower ? 112 : 128;
   const captureWidth = Math.max(
-    192,
+    minCaptureWidth,
     Math.min(captureCap, Math.round(size.width * pixelRatio * captureScale)),
   );
   const captureHeight = Math.max(
-    128,
+    minCaptureHeight,
     Math.min(captureCap, Math.round(size.height * pixelRatio * captureScale)),
   );
   const sceneTarget = useFBO(captureWidth, captureHeight, {
@@ -215,11 +224,15 @@ export function WaterSurface() {
   }, [explorerActive]);
 
   useEffect(() => {
-    const canvas = gl.domElement;
+    function readingSurfaceIsAtTop(target: EventTarget | null) {
+      const element = target instanceof Element ? target : null;
+      const storyScroller = element?.closest<HTMLElement>("[data-story-scroll]");
+      return storyScroller ? storyScroller.scrollTop <= 1 : window.scrollY <= 1;
+    }
 
     function onWheel(event: WheelEvent) {
+      const atHome = viewRef.current === "home";
       if (
-        viewRef.current !== "home" ||
         duckExplorer.getState().active ||
         event.deltaY === 0
       ) {
@@ -228,20 +241,27 @@ export function WaterSurface() {
 
       const lineScale = event.deltaMode === WheelEvent.DOM_DELTA_LINE ? 18 : 1;
       const previous = sandboxZoomTargetRef.current;
+      const atTop = atHome || readingSurfaceIsAtTop(event.target);
+      // On a reading route, only take the wheel at the very top: scroll up
+      // reveals the entire pond, scroll down returns to the story. The page
+      // itself keeps its ordinary scroll behaviour everywhere else.
+      const canAdjust =
+        atTop && (atHome || event.deltaY < 0 || previous > 0.0001);
+      if (!canAdjust) return;
+
       sandboxZoomTargetRef.current = clampUnit(
-        previous + event.deltaY * lineScale * SANDBOX_WHEEL_SENSITIVITY,
+        previous - event.deltaY * lineScale * SANDBOX_WHEEL_SENSITIVITY,
       );
 
-      // Home has no document scroll. Capturing this avoids the rubber-band
-      // bounce and makes a trackpad's two-finger gesture feel like one calm,
-      // continuous pull back through the pool.
+      // Capturing only a genuine overview adjustment avoids rubber-band bounce
+      // on home and lets the same calm pull-back work from an underwater page.
       if (sandboxZoomTargetRef.current !== previous) {
         event.preventDefault();
       }
     }
 
-    canvas.addEventListener("wheel", onWheel, { passive: false });
-    return () => canvas.removeEventListener("wheel", onWheel);
+    window.addEventListener("wheel", onWheel, { passive: false });
+    return () => window.removeEventListener("wheel", onWheel);
   }, [gl]);
 
   useEffect(() => {
@@ -265,10 +285,12 @@ export function WaterSurface() {
 
     timelineRef.current?.kill();
 
+    // Route changes take the camera and water optics below the surface, not
+    // the ducks. Each Duck already has its own physical waterline via
+    // `submergedFraction`; dropping the whole family here hid it completely.
     if (reducedMotion) {
       camera.position.copy(destination.position);
       lookRef.current.copy(destination.lookAt);
-      duckDive.y = diving ? -0.38 : 0;
       if (scene.background instanceof THREE.Color) {
         scene.background.copy(background);
       }
@@ -299,15 +321,6 @@ export function WaterSurface() {
       },
       0,
     );
-    timeline.to(
-      duckDive,
-      {
-        y: diving ? -0.38 : 0,
-        duration: 1.18,
-        ease: "power2.inOut",
-      },
-      0,
-    );
     if (scene.background instanceof THREE.Color) {
       timeline.to(
         scene.background,
@@ -334,9 +347,11 @@ export function WaterSurface() {
     if (performanceWindow.elapsed >= 1.5) {
       const fps = performanceWindow.frames / performanceWindow.elapsed;
       captureEveryRef.current = lowPower
-        ? fps < 42
-          ? 4
-          : 3
+        ? fps < 34
+          ? 6
+          : fps < 50
+            ? 5
+            : 4
         : fps < 48
           ? 3
           : fps > 58
@@ -371,13 +386,31 @@ export function WaterSurface() {
         0,
         Math.cos(explorerTarget.heading),
       );
-      cameraGoal
-        .copy(explorerTarget.group.position)
-        .addScaledVector(forward, leadDistance);
-      cameraGoal.y += eyeHeight;
+      if (lowPower) {
+        const followDistance = Math.max(
+          FOLLOW_MIN_DISTANCE,
+          duckScale * FOLLOW_DISTANCE_SCALE,
+        );
+        const followHeight = Math.max(
+          FOLLOW_MIN_HEIGHT,
+          duckScale * FOLLOW_HEIGHT_SCALE,
+        );
+        cameraGoal
+          .copy(explorerTarget.group.position)
+          .addScaledVector(forward, -followDistance);
+        cameraGoal.y += followHeight;
+      } else {
+        cameraGoal
+          .copy(explorerTarget.group.position)
+          .addScaledVector(forward, leadDistance);
+        cameraGoal.y += eyeHeight;
+      }
       lookGoal
         .copy(explorerTarget.group.position)
-        .addScaledVector(forward, EXPLORER_LOOK_AHEAD);
+        .addScaledVector(
+          forward,
+          lowPower ? FOLLOW_LOOK_AHEAD : EXPLORER_LOOK_AHEAD,
+        );
       lookGoal.y += Math.max(0.07, duckScale * 0.14);
 
       const positionBlend = reducedMotion
@@ -388,7 +421,12 @@ export function WaterSurface() {
         : dampFactor(EXPLORER_LOOK_RESPONSE, delta);
       camera.position.lerp(cameraGoal, positionBlend);
       lookRef.current.lerp(lookGoal, lookBlend);
-      dampFov(camera, EXPLORER_FOV, delta, EXPLORER_POSITION_RESPONSE);
+      dampFov(
+        camera,
+        lowPower ? FOLLOW_FOV : EXPLORER_FOV,
+        delta,
+        EXPLORER_POSITION_RESPONSE,
+      );
       explorerWasActiveRef.current = true;
     } else {
       if (viewRef.current !== "home") {
@@ -418,12 +456,16 @@ export function WaterSurface() {
         const hasSandboxZoom =
           sandboxZoomRef.current > 0.0001 ||
           sandboxZoomTargetRef.current > 0.0001;
-        if (viewRef.current === "home" && hasSandboxZoom) {
+        const activeView = viewRef.current;
+        const baseCamera =
+          activeView === "home" ? CAMERA.home : CAMERA.underwater;
+        const cameraBlend = reducedMotion
+          ? 1
+          : 1 - Math.pow(0.0008, Math.min(delta, 0.1));
+
+        if (hasSandboxZoom) {
           const zoom = sandboxZoomRef.current;
           const target = sandboxZoomTargetRef.current;
-          const cameraBlend = reducedMotion
-            ? 1
-            : 1 - Math.pow(0.0008, Math.min(delta, 0.1));
           sandboxZoomRef.current += (target - zoom) * cameraBlend;
 
           const easedZoom = THREE.MathUtils.smootherstep(
@@ -432,12 +474,12 @@ export function WaterSurface() {
             1,
           );
           camera.position.lerpVectors(
-            CAMERA.home.position,
+            baseCamera.position,
             SANDBOX_CAMERA.position,
             easedZoom,
           );
           lookRef.current.lerpVectors(
-            CAMERA.home.lookAt,
+            baseCamera.lookAt,
             SANDBOX_CAMERA.lookAt,
             easedZoom,
           );
@@ -453,13 +495,13 @@ export function WaterSurface() {
               camera.updateProjectionMatrix();
             }
           }
-        } else if (
-          camera instanceof THREE.PerspectiveCamera &&
-          Math.abs(camera.fov - HOME_FOV) > 0.001
-        ) {
-          camera.fov +=
-            (HOME_FOV - camera.fov) * (1 - Math.pow(0.002, delta));
-          camera.updateProjectionMatrix();
+        } else if (!timelineRef.current?.isActive()) {
+          // If the user returns the overview to zero, settle precisely back at
+          // whichever composed camera the current view owns (hero or
+          // underwater), rather than leaving the lens stranded in between.
+          camera.position.lerp(baseCamera.position, cameraBlend);
+          lookRef.current.lerp(baseCamera.lookAt, cameraBlend);
+          dampFov(camera, HOME_FOV, delta, EXPLORER_HOME_RETURN_RESPONSE);
         }
       }
     }
@@ -471,16 +513,34 @@ export function WaterSurface() {
     const material = waterRef.current?.material;
     if (!mesh || !material) return;
 
-    const submergedTarget = viewRef.current === "home" ? 0 : 1;
+    // Scroll-up on a reading surface can pull the viewer back through the
+    // waterline into the whole pond. The visual treatment follows that camera
+    // continuously rather than leaving an aerial view tinted as underwater.
+    const overviewProgress =
+      viewRef.current === "home"
+        ? 0
+        : THREE.MathUtils.smootherstep(sandboxZoomRef.current, 0.08, 0.55);
+    const submergedTarget =
+      viewRef.current === "home" ? 0 : 1 - overviewProgress;
     const blend = 1 - Math.pow(0.002, delta);
     submergedRef.current +=
       (submergedTarget - submergedRef.current) * blend;
     material.uniforms.uSubmerged.value = submergedRef.current;
 
+    if (!timelineRef.current?.isActive()) {
+      if (scene.background instanceof THREE.Color) {
+        scene.background.lerpColors(
+          BACKGROUND_HOME,
+          BACKGROUND_UNDERWATER,
+          submergedTarget,
+        );
+      }
+    }
+
     const fog = scene.fog;
     if (fog instanceof THREE.FogExp2) {
       fog.density +=
-        ((submergedTarget ? 0.028 : 0) - fog.density) * blend;
+        (submergedTarget * 0.018 - fog.density) * blend;
     }
 
     const positions = material.uniforms.uInteractorPosition

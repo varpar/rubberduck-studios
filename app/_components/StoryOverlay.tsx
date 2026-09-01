@@ -1,6 +1,6 @@
 "use client";
 
-import { useEffect, useRef, useState, type CSSProperties } from "react";
+import { useEffect, useRef, useState } from "react";
 import { useView, type View } from "../_state/navigation";
 import { AboutStory } from "./story/pages/AboutStory";
 import { ContactStory } from "./story/pages/ContactStory";
@@ -9,9 +9,9 @@ import { WorkStory } from "./story/pages/WorkStory";
 /* The in-app transition + content layer.
  *
  * On the home hero, clicking a nav label sets `view` to a page. This panel
- * then RISES from the bottom (translateY 100% → 0) like water flooding up over
- * the duck, and becomes a vertical, scrollable page. Going home drains it back
- * down. The Anton headings inside blur in as they scroll into view.
+ * then becomes a vertical, scrollable page above the live pond. The pond itself
+ * does not slide or fade—the story copy resolves in place, so page changes feel
+ * like a change in attention instead of another animated surface.
  *
  * It sits above the WebGL canvas (z-10) but below the nav labels (z-20), so the
  * nav still floats on top to switch pages / go home. Reduced motion: no slide,
@@ -24,84 +24,102 @@ export function StoryOverlay() {
   const [contentPhase, setContentPhase] = useState<
     "idle" | "leaving" | "entering"
   >("idle");
-  const [entryDelay, setEntryDelay] = useState(0);
+  const [surfaceVisible, setSurfaceVisible] = useState(active);
   const scrollRef = useRef<HTMLDivElement>(null);
 
   useEffect(() => {
     const reduce = window.matchMedia("(prefers-reduced-motion: reduce)").matches;
     let frame: number | null = null;
+    let visibilityFrame: number | null = null;
     let timer: number | null = null;
 
     const schedulePhase = (next: "idle" | "leaving" | "entering") => {
       frame = window.requestAnimationFrame(() => setContentPhase(next));
     };
 
+    const scheduleVisibility = (next: boolean) => {
+      visibilityFrame = window.requestAnimationFrame(() => setSurfaceVisible(next));
+    };
+
     if (!active) {
-      schedulePhase("leaving");
-    } else if (view !== rendered) {
       if (reduce) {
         frame = window.requestAnimationFrame(() => {
-          setEntryDelay(0);
+          setContentPhase("idle");
+          setSurfaceVisible(false);
+        });
+      } else {
+        schedulePhase("leaving");
+        timer = window.setTimeout(() => {
+          setSurfaceVisible(false);
+          window.requestAnimationFrame(() => setContentPhase("idle"));
+        }, 140);
+      }
+    } else if (view !== rendered) {
+      scheduleVisibility(true);
+      if (reduce) {
+        frame = window.requestAnimationFrame(() => {
           setRendered(view);
           scrollRef.current?.scrollTo({ top: 0 });
           setContentPhase("idle");
         });
       } else {
-        // The first story waits for the existing water-dive delay before it
-        // resolves from blur. Switching story tabs is intentionally faster.
-        const delay = rendered === "home" ? 700 : 0;
         schedulePhase("leaving");
         timer = window.setTimeout(() => {
-          setEntryDelay(delay);
           setRendered(view);
           scrollRef.current?.scrollTo({ top: 0 });
-        }, 180);
+        }, 140);
       }
     } else if (reduce) {
       schedulePhase("idle");
     } else {
+      scheduleVisibility(true);
       schedulePhase("entering");
       timer = window.setTimeout(
         () => window.requestAnimationFrame(() => setContentPhase("idle")),
-        560 + entryDelay,
+        320,
       );
     }
 
     return () => {
       if (frame !== null) window.cancelAnimationFrame(frame);
+      if (visibilityFrame !== null) window.cancelAnimationFrame(visibilityFrame);
       if (timer !== null) window.clearTimeout(timer);
     };
-  }, [view, active, rendered, entryDelay]);
+  }, [view, active, rendered]);
 
-  const contentStyle = {
-    "--rd-story-enter-delay": `${entryDelay}ms`,
-  } as CSSProperties;
+  useEffect(() => {
+    if (!active || rendered === "home") return;
+
+    const frame = window.requestAnimationFrame(() => {
+      scrollRef.current
+        ?.querySelector<HTMLElement>("h1")
+        ?.focus({ preventScroll: true });
+    });
+
+    return () => window.cancelAnimationFrame(frame);
+  }, [active, rendered]);
 
   return (
     <div
       ref={scrollRef}
+      data-story-scroll
       aria-hidden={!active}
-      // Delayed on activate so the page "surfaces" AFTER the 3D water has risen
-      // and the camera has gone under — not a crossfade racing the dive.
-      style={{ transitionDelay: active ? "720ms" : "0ms" }}
+      inert={!active}
       className={
-        // No background — transparent so the live water canvas behind it is
-        // what you see while scrolling (you're IN the water, not on a panel).
-        "fixed inset-0 z-10 overflow-x-hidden transition-[transform,opacity] duration-[800ms] ease-[cubic-bezier(0.16,1,0.3,1)] motion-reduce:transition-none " +
-        (active
-          ? "pointer-events-auto translate-y-0 opacity-100 overflow-y-auto"
-          : "pointer-events-none translate-y-full opacity-0 overflow-y-hidden")
+        "fixed inset-0 z-10 overflow-x-hidden " +
+        (surfaceVisible
+          ? "visible pointer-events-auto overflow-y-auto"
+          : "invisible pointer-events-none overflow-y-hidden")
       }
     >
       <div
         key={rendered}
-        style={contentStyle}
         data-page-phase={contentPhase}
         className="rd-overlay-story min-h-full pt-24 sm:pt-28"
       >
-        {rendered === "projects" && <WorkStory />}
-        {rendered === "about" && <AboutStory />}
-        {rendered === "contact" && <ContactStory />}
+        {rendered === "projects" && <WorkStory embedded />}
+        {rendered === "about" && <AboutStory embedded />}
+        {rendered === "contact" && <ContactStory embedded />}
       </div>
     </div>
   );

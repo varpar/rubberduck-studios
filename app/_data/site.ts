@@ -26,6 +26,16 @@ export function getSiteUrl() {
 export const site = {
   studio: "Rubberduck",
   email: "hello@rubberduck.studio",
+  // The studio is based here. This intentionally stops at city level: a
+  // street address, telephone number, opening hours, or service radius should
+  // only be published once they are confirmed for public use.
+  location: {
+    city: "Jaipur",
+    region: "Rajasthan",
+    country: "India",
+    countryCode: "IN",
+    display: "Jaipur, India",
+  },
   // Shown next to the book-a-call CTAs. Keep this useful without inventing a
   // capacity claim that could quietly go stale after launch.
   availability: "Talk to us about the next available start",

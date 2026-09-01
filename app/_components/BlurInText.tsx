@@ -1,9 +1,7 @@
 "use client";
 
-import type { CSSProperties } from "react";
-
 /* ==========================================================================
- * BlurInText — per-character "soft blur in" reveal (Apple-keynote style).
+ * BlurInText — stable, semantic display-text wrapper.
  *
  * This is now a stable, semantic text wrapper. The older per-character GSAP
  * reveal kept headings hidden until JavaScript and an IntersectionObserver ran,
@@ -20,16 +18,12 @@ import type { CSSProperties } from "react";
  *                not silently while it's still off-screen.
  *
  * Accessibility: the whole string is exposed via aria-label on the wrapper and
- * the per-glyph spans are aria-hidden, so screen readers announce words, not
- * letters.
+ * its presentational child spans are hidden, so screen readers announce the
+ * complete heading once.
  *
  * Line breaks: pass "\n" in `text` to split onto multiple lines (replaces the
  * old inline <br/> the headings used).
  * ======================================================================== */
-
-const VISIBLE: CSSProperties = {
-  whiteSpace: "pre", // preserve the spaces we split into their own glyph spans
-};
 
 export function BlurInText({
   text,
@@ -56,14 +50,21 @@ export function BlurInText({
   return (
     <span aria-label={text} className={"block " + className}>
       {text.split("\n").map((line, li) => (
-        // Each source line becomes its own block so the heading keeps wrapping
-        // exactly where the old <br/> used to sit.
+        // Each source line remains a block, while each word is kept whole.
+        // Per-character inline blocks allow a browser to wrap inside words on
+        // a narrow phone (for example "system" → "system / s"). The route
+        // shell still provides the designed blur transition without trading
+        // away readable editorial type.
         <span key={li} aria-hidden className="block">
-          {Array.from(line).map((ch, ci) => (
-            <span key={ci} data-char className="inline-block" style={VISIBLE}>
-              {ch}
-            </span>
-          ))}
+          {line.split(/(\s+)/).map((token, ti) =>
+            /^\s+$/.test(token) ? (
+              token
+            ) : (
+              <span key={ti} className="inline-block whitespace-nowrap">
+                {token}
+              </span>
+            ),
+          )}
         </span>
       ))}
     </span>

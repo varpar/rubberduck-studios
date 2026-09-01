@@ -1,3 +1,4 @@
+import Link from "next/link";
 import { bookMailto, site } from "../_data/site";
 import { work } from "../_data/work";
 
@@ -32,15 +33,28 @@ export function HomeSeoFallback() {
         <ul>
           {work.projects.map((project) => (
             <li key={project.title}>
-              <strong>{project.title}.</strong> {project.summary}
+              <Link href={`/work/${project.slug}`} tabIndex={-1}>
+                <strong>{project.title}.</strong>
+              </Link>{" "}
+              {project.summary}
             </li>
           ))}
         </ul>
 
         <nav aria-label="Rubberduck pages">
-          <a href="/work">See selected work</a>
-          <a href="/about">About Rubberduck</a>
-          <a href="/contact">Contact Rubberduck</a>
+          {/* These duplicate the visible pond navigation. Keep the links in
+              server HTML for crawlers, but remove invisible duplicate stops
+              from keyboard tab order; the live controls remain the usable
+              path for keyboard visitors. */}
+          <Link href="/work" tabIndex={-1}>
+            See selected work
+          </Link>
+          <Link href="/about" tabIndex={-1}>
+            About Rubberduck
+          </Link>
+          <Link href="/contact" tabIndex={-1}>
+            Contact Rubberduck
+          </Link>
         </nav>
       </section>
 
@@ -170,9 +184,9 @@ export function HomeSeoFallback() {
               <a href={bookMailto("A useful idea for Rubberduck")}>
                 Start a conversation
               </a>
-              <a href="/work">See the work</a>
-              <a href="/about">About</a>
-              <a href="/contact">Contact</a>
+              <Link href="/work">See the work</Link>
+              <Link href="/about">About</Link>
+              <Link href="/contact">Contact</Link>
             </nav>
           </div>
         </main>

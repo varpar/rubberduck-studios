@@ -2,7 +2,7 @@
 
 import { useFrame, useThree } from "@react-three/fiber";
 import gsap from "gsap";
-import { useEffect, useRef } from "react";
+import { useEffect, useMemo, useRef } from "react";
 import * as THREE from "three";
 import { Duck, type DuckHandle } from "./Duck";
 import {
@@ -11,6 +11,7 @@ import {
   unregisterDuckExplorerTarget,
   type DuckExplorerKey,
 } from "../_state/duckExplorer";
+import { duckKeyboard } from "../_state/duckKeyboard";
 import { nav, useView, type View } from "../_state/navigation";
 import { constrainPondPosition } from "../_state/pool";
 
@@ -22,6 +23,14 @@ const KEYBOARD_ACCELERATION = 1.85; // world units / second²
 const KEYBOARD_COAST_DRAG = 0.95; // lower = longer, gentler glide
 const KEYBOARD_MOTION_EPSILON = 0.0025;
 const MAX_PHYSICS_DELTA = 1 / 20;
+// This is a deliberately tiny four-body contact check, not a physics engine.
+// The radius tracks the visual duck scale and a contact can only fire once
+// until the pilot leaves its small separation band.
+const DUCK_CONTACT_RADIUS_PER_SCALE = 0.37;
+const DUCK_CONTACT_PADDING = 0.08;
+const DUCK_CONTACT_RELEASE_MULTIPLIER = 1.18;
+const DUCK_CONTACT_COOLDOWN = 0.5;
+const DUCK_CONTACT_NUDGE_MAX = 0.12;
 
 function steerTowards(
   velocity: { x: number; z: number },
@@ -170,14 +179,6 @@ export function DuckFamily() {
   const hiddenSideRef = useRef<Side>("left");
   const isFirstRenderRef = useRef(true);
 
-  // Arrow-key piloting state. Values stay in refs so each animation frame can
-  // update physical motion without scheduling a React render.
-  const keysRef = useRef({
-    ArrowLeft: false,
-    ArrowRight: false,
-    ArrowUp: false,
-    ArrowDown: false,
-  });
   // Each duck keeps its own little packet of momentum. Selecting a different
   // duck in explore mode should never make it inherit the previous duck's
   // velocity and dart away on the first frame.
@@ -188,6 +189,18 @@ export function DuckFamily() {
     d3: { x: 0, z: 0 },
   });
   const pilotKeyRef = useRef<DuckKey | null>(null);
+  const contactByDuckRef = useRef<Record<DuckKey, boolean>>({
+    mom: false,
+    d1: false,
+    d2: false,
+    d3: false,
+  });
+  const lastContactAtRef = useRef<Record<DuckKey, number>>({
+    mom: -Infinity,
+    d1: -Infinity,
+    d2: -Infinity,
+    d3: -Infinity,
+  });
   const controlSpaceRef = useRef({
     up: new THREE.Vector3(),
     right: new THREE.Vector3(),
@@ -197,6 +210,12 @@ export function DuckFamily() {
   const camera = useThree((state) => state.camera);
 
   const view = useView();
+  const reducedMotion = useMemo(
+    () =>
+      typeof window !== "undefined" &&
+      window.matchMedia("(prefers-reduced-motion: reduce)").matches,
+    [],
+  );
   // view is read inside useFrame (which captures a stale value otherwise),
   // so mirror to a ref that's synced every render.
   const viewRef = useRef<View>(view);
@@ -233,46 +252,11 @@ export function DuckFamily() {
     };
   }, []);
 
-  // Arrow-key listener (window-level so the page doesn't need focus on the
-  // canvas). preventDefault stops page scroll on arrow keys. Blur clears the
-  // keys too, so switching apps cannot leave the duck endlessly paddling.
-  useEffect(() => {
-    function onDown(e: KeyboardEvent) {
-      if (e.key === "ArrowLeft") keysRef.current.ArrowLeft = true;
-      else if (e.key === "ArrowRight") keysRef.current.ArrowRight = true;
-      else if (e.key === "ArrowUp") keysRef.current.ArrowUp = true;
-      else if (e.key === "ArrowDown") keysRef.current.ArrowDown = true;
-      else return;
-      e.preventDefault();
-    }
-    function onUp(e: KeyboardEvent) {
-      if (e.key === "ArrowLeft") keysRef.current.ArrowLeft = false;
-      else if (e.key === "ArrowRight") keysRef.current.ArrowRight = false;
-      else if (e.key === "ArrowUp") keysRef.current.ArrowUp = false;
-      else if (e.key === "ArrowDown") keysRef.current.ArrowDown = false;
-    }
-    function clearKeys() {
-      keysRef.current.ArrowLeft = false;
-      keysRef.current.ArrowRight = false;
-      keysRef.current.ArrowUp = false;
-      keysRef.current.ArrowDown = false;
-    }
-    window.addEventListener("keydown", onDown);
-    window.addEventListener("keyup", onUp);
-    window.addEventListener("blur", clearKeys);
-    return () => {
-      window.removeEventListener("keydown", onDown);
-      window.removeEventListener("keyup", onUp);
-      window.removeEventListener("blur", clearKeys);
-    };
-  }, []);
-
-  // Per-frame: pilot the currently-centered duck with arrow keys. Disabled
-  // while a swim transition is active. Inputs are resolved through the
-  // camera's ground-plane axes, then accelerated toward a capped desired
-  // velocity. When keys release, exponential water drag makes it coast and
-  // stop smoothly while Duck.tsx retains the final heading.
-  useFrame((_, delta) => {
+  // Per-frame: steer a selected pilot duck, or the centered duck while
+  // underwater. Inputs are disabled only while a family transition is active.
+  // They resolve through camera-ground axes, accelerate toward a capped
+  // velocity, then coast through water drag while Duck.tsx retains heading.
+  useFrame((state, delta) => {
     const activeTL = activeTLRef.current;
     if (activeTL && activeTL.isActive()) {
       for (const velocity of Object.values(velocityByDuckRef.current)) {
@@ -284,10 +268,22 @@ export function DuckFamily() {
     }
 
     const explorer = duckExplorer.getState();
-    const pilotKey =
-      explorer.active && viewRef.current === "home"
-        ? explorer.selected
-        : STOPPER_FOR_VIEW[viewRef.current];
+    const activeView = viewRef.current;
+    const canSteer = explorer.active || activeView !== "home";
+    if (!canSteer) {
+      if (pilotKeyRef.current) {
+        const velocity = velocityByDuckRef.current[pilotKeyRef.current];
+        velocity.x = 0;
+        velocity.z = 0;
+        pilotKeyRef.current = null;
+      }
+      return;
+    }
+    // In the authored underwater state, steer the duck that is already
+    // centered for that section. Pilot mode keeps its explicit 1–4 selection.
+    const pilotKey = explorer.active
+      ? explorer.selected
+      : STOPPER_FOR_VIEW[activeView];
     const duck = getDuck(pilotKey);
     if (!duck) return;
 
@@ -304,9 +300,16 @@ export function DuckFamily() {
       velocity.x = 0;
       velocity.z = 0;
       pilotKeyRef.current = pilotKey;
+      // Contact state belongs to the currently piloted duck. Resetting it on
+      // a 1–4 switch avoids a prior duck's overlap suppressing the new
+      // duck's first real bump.
+      contactByDuckRef.current.mom = false;
+      contactByDuckRef.current.d1 = false;
+      contactByDuckRef.current.d2 = false;
+      contactByDuckRef.current.d3 = false;
     }
 
-    const keys = keysRef.current;
+    const keys = duckKeyboard.getState();
     const horizontal = (keys.ArrowRight ? 1 : 0) - (keys.ArrowLeft ? 1 : 0);
     const vertical = (keys.ArrowUp ? 1 : 0) - (keys.ArrowDown ? 1 : 0);
     const inputMagnitude = Math.hypot(horizontal, vertical);
@@ -366,6 +369,74 @@ export function DuckFamily() {
       }
       duck.group.position.x = next.x;
       duck.group.position.z = next.z;
+
+      // With only four ducks this costs three planar distance checks during
+      // actual movement. A new contact bounces both visible bodies and nudges
+      // the piloted one back along the contact normal, so it cannot visually
+      // drive through another duck. We intentionally leave the other duck's
+      // travel state untouched: timelines and first-person tracking stay
+      // stable, and the reaction remains purely local and reversible.
+      const now = state.clock.elapsedTime;
+      for (const otherKey of DUCK_KEYS) {
+        if (otherKey === pilotKey) continue;
+        const other = getDuck(otherKey);
+        if (!other) continue;
+
+        const dx = duck.group.position.x - other.group.position.x;
+        const dz = duck.group.position.z - other.group.position.z;
+        const distance = Math.hypot(dx, dz);
+        const contactRadius =
+          (duck.scale + other.scale) * DUCK_CONTACT_RADIUS_PER_SCALE +
+          DUCK_CONTACT_PADDING;
+        const inContact = distance < contactRadius;
+        const wasInContact = contactByDuckRef.current[otherKey];
+
+        if (!inContact) {
+          if (distance > contactRadius * DUCK_CONTACT_RELEASE_MULTIPLIER) {
+            contactByDuckRef.current[otherKey] = false;
+          }
+          continue;
+        }
+
+        if (
+          wasInContact ||
+          now - lastContactAtRef.current[otherKey] < DUCK_CONTACT_COOLDOWN
+        ) {
+          continue;
+        }
+
+        contactByDuckRef.current[otherKey] = true;
+        lastContactAtRef.current[otherKey] = now;
+        duck.bounce();
+        other.bounce();
+
+        const velocityLength = Math.hypot(velocity.x, velocity.z);
+        const normalX =
+          distance > 0.0001
+            ? dx / distance
+            : velocityLength > 0.0001
+              ? -velocity.x / velocityLength
+              : 1;
+        const normalZ =
+          distance > 0.0001
+            ? dz / distance
+            : velocityLength > 0.0001
+              ? -velocity.z / velocityLength
+              : 0;
+        const overlap = contactRadius - distance;
+        const nudge = Math.min(
+          DUCK_CONTACT_NUDGE_MAX,
+          Math.max(0.025, overlap * 0.55),
+        );
+        const separated = constrainPondPosition(
+          duck.group.position.x + normalX * nudge,
+          duck.group.position.z + normalZ * nudge,
+        );
+        duck.group.position.x = separated.x;
+        duck.group.position.z = separated.z;
+        velocity.x *= 0.28;
+        velocity.z *= 0.28;
+      }
     }
   });
 
@@ -407,6 +478,22 @@ export function DuckFamily() {
     const endX: Record<DuckKey, number> = {} as Record<DuckKey, number>;
     for (const k of DUCK_KEYS) {
       endX[k] = k === newStopper ? CENTER_X : HIDDEN_X[newSide][k];
+    }
+
+    if (reducedMotion) {
+      // A reduced-motion route change still preserves the chosen duck/page
+      // relationship, but it does not run the long swimming choreography.
+      // Updating the same imperative groups keeps the canvas and overlay in
+      // sync without a transient animation frame.
+      for (const k of DUCK_KEYS) {
+        const d = getDuck(k);
+        if (!d) continue;
+        d.group.position.set(endX[k], d.group.position.y, 0);
+      }
+      hiddenSideRef.current = newSide;
+      prevViewRef.current = view;
+      if (view !== "home") nav.setContentVisible(view);
+      return;
     }
 
     // ---- Timings -----------------------------------------------------
@@ -582,7 +669,7 @@ export function DuckFamily() {
     );
 
     tl.play(0);
-  }, [view]);
+  }, [reducedMotion, view]);
 
   return (
     <>

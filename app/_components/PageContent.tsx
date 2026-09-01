@@ -465,7 +465,6 @@ const PROJECTS: Project[] = [
   { name: "NutriPanda", kind: "Mobile app", tagline: "Nutrition tracking that doesn't scold you.", stack: ["React Native", "Expo", "Zod"], year: 2025 },
   { name: "Vikalp", kind: "Platform", tagline: "A platform for the alternative economy.", stack: ["Next.js", "Prisma", "MapLibre"], year: 2025 },
   { name: "Zevar Baksa", kind: "Storefront", tagline: "Heirloom jewellery, sold like a story.", stack: ["Shopify", "Hydrogen", "GSAP"], year: 2026 },
-  { name: "Lanthir Revenue", kind: "Dashboard", tagline: "Revenue management for heritage hotels.", stack: ["Next.js", "Python", "DuckDB"], year: 2026 },
   { name: "Ferry", kind: "Payments", tagline: "Micro-payments for public transit riders.", stack: ["React", "Solid Pay", "PostGIS"], year: 2026 },
   { name: "Yuvraaj", kind: "Web app", tagline: "A bedtime story generator for small humans.", stack: ["Next.js", "Claude", "ElevenLabs"], year: 2026 },
 ];

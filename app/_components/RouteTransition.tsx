@@ -23,8 +23,8 @@ const RouteTransitionContext = createContext<RouteTransitionContextValue | null>
   null,
 );
 
-const EXIT_DURATION_MS = 180;
-const ENTER_DURATION_MS = 560;
+const EXIT_DURATION_MS = 140;
+const ENTER_DURATION_MS = 320;
 
 function prefersReducedMotion() {
   return window.matchMedia("(prefers-reduced-motion: reduce)").matches;
@@ -32,9 +32,9 @@ function prefersReducedMotion() {
 
 /**
  * Holds the route boundary in the persistent root layout. Route links can ask
- * it to briefly dissolve the outgoing story before Next changes the URL; the
- * incoming route then resolves from a soft blur. It deliberately uses only
- * opacity/filter/transform so it remains cheap alongside the WebGL pond.
+ * it to briefly dissolve outgoing editorial copy before Next changes the URL.
+ * The route surface, navigation, and project media stay stable—the CSS only
+ * targets `.rd-route-copy`, keeping the movement cheap beside the WebGL pond.
  */
 export function RouteTransitionProvider({ children }: { children: ReactNode }) {
   const pathname = usePathname();
@@ -108,11 +108,6 @@ export function RouteTransitionProvider({ children }: { children: ReactNode }) {
       >
         {children}
       </div>
-      <div
-        aria-hidden="true"
-        className="rd-route-wash"
-        data-visible={phase === "leaving" ? "true" : "false"}
-      />
     </RouteTransitionContext.Provider>
   );
 }

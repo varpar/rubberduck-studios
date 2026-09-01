@@ -182,9 +182,10 @@ const FRAGMENT_SHADER = /* glsl */ `
   varying float vHeight;
   varying float vWake;
 
-  // Lower attenuation keeps the underwater view bright and summery while
-  // preserving the blue-green loss of red light over distance.
-  const vec3 ABSORPTION = vec3(0.34, 0.09, 0.035);
+  // This is a clear, shallow summer pond. Keep enough red absorption for a
+  // blue cast, but let the sunlit top of a floating duck read through the
+  // surface instead of collapsing into an opaque silhouette.
+  const vec3 ABSORPTION = vec3(0.16, 0.045, 0.020);
   const float F0 = 0.02037;
 
   vec3 skyReflection(vec3 ray) {
@@ -277,11 +278,16 @@ ${POND_BOUNDARY_GLSL}
     float pathLength = waterDepth / max(cosIncident, 0.18);
     vec3 transmission = exp(-ABSORPTION * pathLength);
 
-    // Water -> air critical angle is 48.6 degrees (cos ~= 0.66). Inside the
-    // window is refraction; outside is total internal reflection.
-    float snellWindow = smoothstep(0.61, 0.71, cosIncident);
+    // Keep an art-directed, generously soft Snell window. A strictly narrow
+    // physical cone made most of the overhead surface reflective, hiding the
+    // floating ducks when a reader was under water.
+    float snellWindow = smoothstep(0.26, 0.52, cosIncident);
     vec3 sceneColor = texture2D(uSceneMap, refractedUv(-normal, 0.027)).rgb;
-    vec3 refracted = sceneColor * transmission + uDeepColor * (1.0 - transmission);
+    vec3 refracted = mix(
+      uDeepColor * 0.78,
+      sceneColor,
+      0.58 + transmission * 0.42
+    );
     vec3 tir = mix(
       uDeepColor * 0.65,
       skyReflection(reflect(-viewDirection, -normal)) * transmission,

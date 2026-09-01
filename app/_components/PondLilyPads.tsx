@@ -1,5 +1,6 @@
 "use client";
 
+import { useFrame, type ThreeEvent } from "@react-three/fiber";
 import { useEffect, useMemo, useRef } from "react";
 import * as THREE from "three";
 
@@ -21,6 +22,15 @@ type LilyPad = {
   stretchZ: number;
   variant: 0 | 1 | 2;
 };
+
+type IndexedLilyPad = LilyPad & { id: number };
+
+// A tap should feel like it displaces a light leaf, rather than turning the
+// entire pond into a physics toy. This remains local to the touched instance:
+// one short dip, a little roll, then it settles back into its base matrix.
+const TAP_REACTION_SECONDS = 0.7;
+const TAP_DIP_WORLD = 0.032;
+const TAP_TILT_RADIANS = 0.06;
 
 // A deliberately small field. These are placed as individual leaves along the
 // quieter edges, leaving open water for the ducks and the hero water lily.
@@ -224,9 +234,17 @@ function createLilyPadGeometry(variant: number) {
 
 export function PondLilyPads() {
   const meshRefs = useRef<Array<THREE.InstancedMesh | null>>([]);
+  const matrixDummyRef = useRef(new THREE.Object3D());
+  const frameTimeRef = useRef(0);
+  const tappedAtRef = useRef<number[]>(
+    Array.from({ length: LILY_PADS.length }, () => -Infinity),
+  );
+  const activeTapCountRef = useRef(0);
   const assets = useMemo(() => {
-    const padsByVariant: LilyPad[][] = [[], [], []];
-    LILY_PADS.forEach((pad) => padsByVariant[pad.variant].push(pad));
+    const padsByVariant: IndexedLilyPad[][] = [[], [], []];
+    LILY_PADS.forEach((pad, id) =>
+      padsByVariant[pad.variant].push({ ...pad, id }),
+    );
 
     return {
       geometries: [0, 1, 2].map(createLilyPadGeometry),
@@ -263,26 +281,102 @@ export function PondLilyPads() {
     };
   }, []);
 
-  useEffect(() => {
-    const dummy = new THREE.Object3D();
+  function writePadMatrix(
+    mesh: THREE.InstancedMesh,
+    pad: IndexedLilyPad,
+    index: number,
+    yOffset = 0,
+    tiltOffset = 0,
+    yawOffset = 0,
+  ) {
+    const dummy = matrixDummyRef.current;
+    dummy.position.set(pad.x, PAD_HEIGHT + yOffset, pad.z);
+    dummy.rotation.set(
+      pad.tiltX + tiltOffset,
+      pad.rotation + yawOffset,
+      pad.tiltZ - tiltOffset * 0.72,
+    );
+    dummy.scale.set(pad.size * pad.stretchX, 1, pad.size * pad.stretchZ);
+    dummy.updateMatrix();
+    mesh.setMatrixAt(index, dummy.matrix);
+  }
 
+  useEffect(() => {
     assets.padsByVariant.forEach((pads, variant) => {
       const mesh = meshRefs.current[variant];
       if (!mesh) return;
 
       pads.forEach((pad, index) => {
-        dummy.position.set(pad.x, PAD_HEIGHT, pad.z);
-        dummy.rotation.set(pad.tiltX, pad.rotation, pad.tiltZ);
-        dummy.scale.set(pad.size * pad.stretchX, 1, pad.size * pad.stretchZ);
-        dummy.updateMatrix();
-        mesh.setMatrixAt(index, dummy.matrix);
+        writePadMatrix(mesh, pad, index);
       });
 
-      mesh.instanceMatrix.setUsage(THREE.StaticDrawUsage);
+      // There are only six matrices; each is touched for less than a second
+      // after a direct tap. Dynamic usage keeps the resting pond just as
+      // light while allowing that small local response.
+      mesh.instanceMatrix.setUsage(THREE.DynamicDrawUsage);
       mesh.instanceMatrix.needsUpdate = true;
       mesh.computeBoundingSphere();
     });
   }, [assets]);
+
+  useFrame((state) => {
+    const now = state.clock.elapsedTime;
+    frameTimeRef.current = now;
+    // No active tap means no instance loops or GPU matrix uploads at all.
+    if (activeTapCountRef.current === 0) return;
+
+    assets.padsByVariant.forEach((pads, variant) => {
+      const mesh = meshRefs.current[variant];
+      if (!mesh) return;
+
+      let changed = false;
+      pads.forEach((pad, index) => {
+        const tappedAt = tappedAtRef.current[pad.id];
+        const elapsed = now - tappedAt;
+        if (elapsed < 0 || tappedAt === -Infinity) return;
+        if (elapsed >= TAP_REACTION_SECONDS) {
+          // Restore the exact rest matrix even if a slow frame skipped over
+          // the final, near-zero portion of the animation.
+          writePadMatrix(mesh, pad, index);
+          tappedAtRef.current[pad.id] = -Infinity;
+          activeTapCountRef.current = Math.max(
+            0,
+            activeTapCountRef.current - 1,
+          );
+          changed = true;
+          return;
+        }
+
+        const progress = elapsed / TAP_REACTION_SECONDS;
+        // The touched side dips first, rises, and then softly settles. This
+        // reads as a water response without a new simulation target or a
+        // frame-by-frame React update.
+        const taper = Math.pow(1 - progress, 0.7);
+        const wave = Math.sin(progress * Math.PI * 2) * taper;
+        writePadMatrix(
+          mesh,
+          pad,
+          index,
+          -wave * TAP_DIP_WORLD,
+          wave * TAP_TILT_RADIANS,
+          wave * 0.085,
+        );
+        changed = true;
+      });
+
+      if (changed) mesh.instanceMatrix.needsUpdate = true;
+    });
+  });
+
+  function tapPad(variant: number, instanceId: number | undefined) {
+    if (instanceId === undefined || instanceId < 0) return;
+    const pad = assets.padsByVariant[variant]?.[instanceId];
+    if (!pad) return;
+    if (tappedAtRef.current[pad.id] === -Infinity) {
+      activeTapCountRef.current += 1;
+    }
+    tappedAtRef.current[pad.id] = frameTimeRef.current;
+  }
 
   useEffect(
     () => () => {
@@ -306,6 +400,12 @@ export function PondLilyPads() {
             pads.length,
           ]}
           frustumCulled
+          onPointerDown={(event: ThreeEvent<PointerEvent>) => {
+            // A pad is an intentional target — do not also trigger a
+            // click-through on the water or scenery behind it.
+            event.stopPropagation();
+            tapPad(variant, event.instanceId);
+          }}
         />
       ))}
     </group>

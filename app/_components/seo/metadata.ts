@@ -2,26 +2,23 @@ import type { Metadata } from "next";
 import { getSiteUrl, site } from "@/app/_data/site";
 
 type RouteMetadata = {
-  path: "/work" | "/about" | "/contact";
+  path: string;
   title: string;
   description: string;
-  image: string;
-  imageAlt: string;
+  image?: string;
+  imageAlt?: string;
 };
 
 const defaultTitle = "Rubberduck — Useful systems, made clear";
 const defaultDescription =
-  "Rubberduck is an independent studio for thoughtful automations and focused digital products.";
-const defaultImage = "/images/story/work-pond.png";
-const defaultImageAlt =
-  "A yellow rubber duck floating among glass tiles and lily pads on a sunlit pond.";
-
+  `Rubberduck is an independent studio in ${site.location.display} for thoughtful automations and focused digital products.`;
 function absoluteUrl(path: string) {
   const siteUrl = getSiteUrl();
   return siteUrl ? new URL(path, `${siteUrl}/`).toString() : undefined;
 }
 
-function socialImage(path: string, alt: string) {
+function socialImage(path?: string, alt?: string) {
+  if (!path || !alt) return undefined;
   const url = absoluteUrl(path);
   return url ? [{ url, alt }] : undefined;
 }
@@ -37,7 +34,6 @@ function socialTitle(title: string) {
  */
 export function createRootMetadata(): Metadata {
   const siteUrl = getSiteUrl();
-  const image = socialImage(defaultImage, defaultImageAlt);
 
   return {
     ...(siteUrl ? { metadataBase: new URL(`${siteUrl}/`) } : {}),
@@ -57,13 +53,11 @@ export function createRootMetadata(): Metadata {
       title: defaultTitle,
       description: defaultDescription,
       ...(siteUrl ? { url: `${siteUrl}/` } : {}),
-      ...(image ? { images: image } : {}),
     },
     twitter: {
-      card: image ? "summary_large_image" : "summary",
+      card: "summary",
       title: defaultTitle,
       description: defaultDescription,
-      ...(image ? { images: image } : {}),
     },
   };
 }

@@ -1,10 +1,16 @@
 "use client";
 
 import { useGLTF } from "@react-three/drei";
-import { useFrame } from "@react-three/fiber";
-import { forwardRef, useImperativeHandle, useMemo, useRef } from "react";
+import { useFrame, type ThreeEvent } from "@react-three/fiber";
+import {
+  forwardRef,
+  useCallback,
+  useImperativeHandle,
+  useMemo,
+  useRef,
+} from "react";
 import * as THREE from "three";
-import { duckDive, waterLevel } from "../_state/waterLevel";
+import { waterLevel } from "../_state/waterLevel";
 import {
   WAKE_IMPULSES_PER_DUCK,
   waterInteractors,
@@ -24,6 +30,8 @@ const STROKE_PITCH_AMP = 0.032; // radians, ~2° forward tilt during thrust
 const MOTION_FILTER_RESPONSE = 11;
 const FACING_TURN_RESPONSE = 5.2;
 const HEADING_SPEED_EPSILON = 0.06;
+const TAP_BOUNCE_SECONDS = 0.56;
+const TAP_BOUNCE_HEIGHT_LOCAL = 0.085;
 
 // The Sketchfab GLB has nested transforms — `Sketchfab_model` and
 // `GLTF_SceneRootNode` cancel to identity, but the body mesh node
@@ -54,6 +62,10 @@ export type DuckHandle = {
   // back to the model's default orientation at rest.
   readonly heading: number;
   readonly scale: number;
+  // A lightweight local visual reaction used for direct pointer hits and the
+  // four-duck proximity check in DuckFamily. It deliberately does not affect
+  // the travel group, movement controller, or water interaction data.
+  bounce: () => void;
 };
 
 type DuckProps = {
@@ -105,8 +117,17 @@ export const Duck = forwardRef<DuckHandle, DuckProps>(function Duck(
 ) {
   const travelRef = useRef<THREE.Group>(null);
   const bobRef = useRef<THREE.Group>(null);
+  const tapBounceRef = useRef<THREE.Group>(null);
   const facingRef = useRef<THREE.Group>(null);
   const strokeRef = useRef<THREE.Group>(null);
+  const frameTimeRef = useRef(0);
+  const tappedAtRef = useRef(-Infinity);
+  const reducedMotion = useMemo(
+    () =>
+      typeof window !== "undefined" &&
+      window.matchMedia("(prefers-reduced-motion: reduce)").matches,
+    [],
+  );
 
   // Track position imperatively so the duck can use the same heading / wake
   // behavior for keyboard coasting and the authored GSAP family swims.
@@ -117,6 +138,9 @@ export const Duck = forwardRef<DuckHandle, DuckProps>(function Duck(
   // finishes gliding left, it remains facing left instead of springing back to
   // its default +Z pose as soon as its velocity reaches zero.
   const headingRef = useRef(0);
+  const triggerBounce = useCallback(() => {
+    tappedAtRef.current = frameTimeRef.current;
+  }, []);
 
   useImperativeHandle(ref, () => ({
     get group() {
@@ -128,10 +152,14 @@ export const Duck = forwardRef<DuckHandle, DuckProps>(function Duck(
     get scale() {
       return scale;
     },
+    bounce() {
+      triggerBounce();
+    },
   }));
 
   useFrame((state, delta) => {
     const t = state.clock.elapsedTime;
+    frameTimeRef.current = t;
     const phase = bobPhase;
     const omega = bobFrequency;
 
@@ -145,11 +173,10 @@ export const Duck = forwardRef<DuckHandle, DuckProps>(function Duck(
     let isMoving = false;
     let speed = 0;
     if (travel) {
-      // Sink with the camera during a dive (Water.tsx animates duckDive) so the
-      // whole family submerges — you see the ENTIRE duck underwater, not just
-      // the bit below the surface. travel.position.y is otherwise unused (GSAP
-      // only writes x/z during the swim).
-      travel.position.y = waterLevel.y - WATER_Y_WORLD + duckDive.y;
+      // The camera can go under the surface, but the ducks stay buoyant. Their
+      // model-specific `submergedFraction` supplies the visible waterline;
+      // this group only tracks the shared surface height.
+      travel.position.y = waterLevel.y - WATER_Y_WORLD;
       const dx = travel.position.x - prevXRef.current;
       const dz = travel.position.z - prevZRef.current;
       prevXRef.current = travel.position.x;
@@ -242,43 +269,90 @@ export const Duck = forwardRef<DuckHandle, DuckProps>(function Duck(
     // not a back-and-forth shimmy.
     const bob = bobRef.current;
     if (bob) {
-      bob.position.y = bobAmplitude * Math.sin(t * omega + phase);
-      bob.rotation.z = swayAmplitude * Math.cos(t * omega + phase);
-      bob.rotation.y = yawAmplitude * Math.sin(t * omega * 0.5 + phase);
+      if (reducedMotion) {
+        // The composition remains available, but no ambient bob, sway, or
+        // elastic feedback keeps moving when a visitor asks for stillness.
+        bob.position.y = 0;
+        bob.rotation.set(0, 0, 0);
+        if (stroke) {
+          stroke.position.z = 0;
+          stroke.rotation.x = 0;
+        }
+      } else {
+        bob.position.y = bobAmplitude * Math.sin(t * omega + phase);
+        bob.rotation.z = swayAmplitude * Math.cos(t * omega + phase);
+        bob.rotation.y = yawAmplitude * Math.sin(t * omega * 0.5 + phase);
 
-      // The local stroke group is nested inside facingRef, so the very small
-      // surge follows the duck's retained heading rather than always sliding
-      // along world X. It fades with speed to avoid an idle fidget.
-      if (stroke) {
-        const strokeOmega = STROKE_HZ * 2 * Math.PI;
-        const strokePhase = t * strokeOmega + phase * 1.7;
-        const strokeStrength = THREE.MathUtils.smoothstep(
-          speed,
-          HEADING_SPEED_EPSILON,
-          0.7,
+        // The local stroke group is nested inside facingRef, so the very small
+        // surge follows the duck's retained heading rather than always sliding
+        // along world X. It fades with speed to avoid an idle fidget.
+        if (stroke) {
+          const strokeOmega = STROKE_HZ * 2 * Math.PI;
+          const strokePhase = t * strokeOmega + phase * 1.7;
+          const strokeStrength = THREE.MathUtils.smoothstep(
+            speed,
+            HEADING_SPEED_EPSILON,
+            0.7,
+          );
+          const surgeAmpLocal =
+            (STROKE_FORWARD_AMP_WORLD * strokeStrength) / scale;
+          stroke.position.z = surgeAmpLocal * Math.sin(strokePhase);
+          stroke.rotation.x =
+            STROKE_PITCH_AMP *
+            strokeStrength *
+            Math.sin(strokePhase + Math.PI / 4);
+        }
+      }
+    }
+
+    const tapBounce = tapBounceRef.current;
+    if (tapBounce) {
+      const elapsed = t - tappedAtRef.current;
+      if (!reducedMotion && elapsed >= 0 && elapsed < TAP_BOUNCE_SECONDS) {
+        const progress = elapsed / TAP_BOUNCE_SECONDS;
+        const arc = Math.sin(progress * Math.PI);
+        // A tiny squash-and-stretch makes the hit read as rubber, while the
+        // group remains entirely local to this duck. It does not change its
+        // travel position, heading, keyboard physics, or water wake.
+        tapBounce.position.y = TAP_BOUNCE_HEIGHT_LOCAL * arc;
+        tapBounce.rotation.z = Math.sin(progress * Math.PI * 2) * 0.035;
+        tapBounce.scale.set(
+          1 + arc * 0.026,
+          1 - arc * 0.075,
+          1 + arc * 0.026,
         );
-        const surgeAmpLocal =
-          (STROKE_FORWARD_AMP_WORLD * strokeStrength) / scale;
-        stroke.position.z = surgeAmpLocal * Math.sin(strokePhase);
-        stroke.rotation.x =
-          STROKE_PITCH_AMP *
-          strokeStrength *
-          Math.sin(strokePhase + Math.PI / 4);
+      } else {
+        tapBounce.position.y = 0;
+        tapBounce.rotation.z = 0;
+        tapBounce.scale.setScalar(1);
       }
     }
   });
 
+  function bounceFromTap(event: ThreeEvent<PointerEvent>) {
+    // Stop here so a tap on a duck cannot also select scenery behind it.
+    event.stopPropagation();
+    triggerBounce();
+  }
+
   return (
-    <group ref={travelRef} position={basePosition} scale={scale}>
+    <group
+      ref={travelRef}
+      position={basePosition}
+      scale={scale}
+      onPointerDown={bounceFromTap}
+    >
       <group ref={bobRef}>
-        <group ref={facingRef}>
-          <group ref={strokeRef}>
-            <group rotation-y={MODEL_BASE_ROTATION_Y}>
-              <DuckModel
-                scale={scale}
-                hidden={hidden}
-                submergedFraction={submergedFraction}
-              />
+        <group ref={tapBounceRef}>
+          <group ref={facingRef}>
+            <group ref={strokeRef}>
+              <group rotation-y={MODEL_BASE_ROTATION_Y}>
+                <DuckModel
+                  scale={scale}
+                  hidden={hidden}
+                  submergedFraction={submergedFraction}
+                />
+              </group>
             </group>
           </group>
         </group>
@@ -370,15 +444,17 @@ function DuckModel({
               // it doesn't switch instantly.
               float wet = 1.0 - smoothstep(uWaterY - 0.05, uWaterY + 0.02, vWetWorldPos.y);
               gl_FragColor.rgb = mix(gl_FragColor.rgb, gl_FragColor.rgb * vec3(0.5, 0.64, 0.74), wet * 0.82);
-              // Water absorbs warmer light first. Tint the whole duck only
-              // after the camera dives, keeping a recognisable yellow body
-              // while making it belong to the underwater volume.
+              // Looking up through the surface should still reveal the sunny
+              // top of a floating duck. Keep the blue volume mostly in the
+              // genuinely wet part instead of tinting every fragment whenever
+              // the camera goes underwater.
               float duckLight = dot(gl_FragColor.rgb, vec3(0.2126, 0.7152, 0.0722));
               // Re-map the material's brightness into a cyan-blue volume
               // instead of merely multiplying yellow (which produces olive).
-              vec3 underwaterColor = vec3(0.07, 0.44, 0.80)
-                * (0.38 + duckLight * 0.62);
-              gl_FragColor.rgb = mix(gl_FragColor.rgb, underwaterColor, uUnderwater * 0.68);
+              vec3 underwaterColor = vec3(0.12, 0.52, 0.82)
+                * (0.52 + duckLight * 0.48);
+              float underwaterTint = uUnderwater * mix(0.12, 0.56, wet);
+              gl_FragColor.rgb = mix(gl_FragColor.rgb, underwaterColor, underwaterTint);
               #include <dithering_fragment>`,
             );
         };

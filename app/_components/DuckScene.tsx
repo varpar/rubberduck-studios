@@ -5,21 +5,12 @@ import { Canvas } from "@react-three/fiber";
 import { Suspense, useMemo } from "react";
 import * as THREE from "three";
 import { Caustics } from "./Caustics";
-import { DuckExplorerControl } from "./DuckExplorerControl";
 import { DuckFamily } from "./DuckFamily";
 import { GodRays } from "./GodRays";
 import { PondEnvironment } from "./PoolEnvironment";
 import { WaterSurface } from "./Water";
 
-function PondHDRI() {
-  const lowPower = useMemo(
-    () =>
-      typeof window !== "undefined" &&
-      (window.matchMedia("(pointer: coarse)").matches ||
-        (navigator.hardwareConcurrency ?? 8) <= 4),
-    [],
-  );
-
+function PondHDRI({ lowPower }: { lowPower: boolean }) {
   // A 1K CC0 HDRI adds believable summer reflections and ambient light on
   // desktops. Its tree canopy is intentionally not used as the literal sky:
   // the bright art-directed sky stays readable behind the type. Coarse-pointer
@@ -47,14 +38,16 @@ export default function DuckScene() {
   return (
     <>
       <Canvas
+        role="img"
+        aria-label="A sunlit pond with Rubberduck's family of ducks."
         // Eye-level camera — y ≈ duck eye height (mom's eyes sit at
         // y ≈ 0.17, this puts the lens just at that horizon). The 6.5
         // dolly distance keeps mom at ~40% of viewport. Lookat origin
         // gives a barely-perceptible 1.8° downward tilt so the centered
         // duck reads at frame center rather than the bottom third.
-        camera={{ position: [0, 0.62, 6.5], fov: 28 }}
+        camera={{ position: [-1.3, 0.62, 6.5], fov: 28 }}
         onCreated={({ camera, gl }) => {
-          camera.lookAt(0, -0.02, 0);
+          camera.lookAt(-1.3, -0.02, 0);
           gl.outputColorSpace = THREE.SRGBColorSpace;
           gl.toneMapping = THREE.ACESFilmicToneMapping;
           gl.toneMappingExposure = 1.08;
@@ -73,8 +66,15 @@ export default function DuckScene() {
         // reflection samples black and the water reads as ominous. Giving
         // the scene a bright sky color fixes both the look behind/above
         // the water AND what the surface reflects.
-        gl={{ antialias: true, alpha: false }}
-        shadows={!lowPower}
+        // MSAA has a disproportionate memory and resolve cost on phones. At
+        // 1× DPR the pond's deliberately soft material language still reads
+        // cleanly without it, and keeping that work out of every frame leaves
+        // room for direct touch interactions.
+        gl={{ antialias: !lowPower, alpha: false }}
+        // R3F's boolean `true` selects Three's deprecated soft-shadow mode.
+        // The percentage mode is the same restrained quality we configure in
+        // `onCreated`, without a console warning on current Three releases.
+        shadows={lowPower ? false : "percentage"}
       >
         <>
           <color attach="background" args={["#9edbed"]} />
@@ -105,16 +105,19 @@ export default function DuckScene() {
           />
           {/* The normal map, refraction target, and GLB all suspend while loading. */}
           <Suspense fallback={null}>
-            <PondHDRI />
+            <PondHDRI lowPower={lowPower} />
             <PondEnvironment />
             <WaterSurface />
-            <Caustics />
-            <GodRays />
+            {/* Phones keep one static, low-cost caustic sheet for underwater
+                depth. The additive shaft stack is desktop-only: six
+                transparent planes are visually nice but expensive on small
+                mobile GPUs and compete with the water capture. */}
+            <Caustics lowPower={lowPower} />
+            {!lowPower && <GodRays />}
             <DuckFamily />
           </Suspense>
         </>
       </Canvas>
-      <DuckExplorerControl />
     </>
   );
 }

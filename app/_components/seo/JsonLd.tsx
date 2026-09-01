@@ -9,12 +9,13 @@ type JsonLdProps = {
 export type ServiceKey = "workflowAutomation" | "productDevelopment";
 
 type PageSchema = {
-  path: "/work" | "/about" | "/contact";
+  path: string;
   name: string;
   description: string;
-  image: string;
+  image?: string;
   type?: "WebPage" | "ContactPage";
   serviceKeys?: ServiceKey[];
+  breadcrumbs?: Array<{ name: string; path: string }>;
 };
 
 const services: Record<
@@ -96,11 +97,11 @@ function getServiceReference(key: ServiceKey): JsonLdObject {
 }
 
 /**
- * Site-wide entities. Every value is supported by visible site content; there
- * are deliberately no ratings, location, phone number, social profiles, or
- * pricing data because none have been supplied by the studio. URL-based
- * fields are emitted only when SITE_URL (or the legacy NEXT_PUBLIC_SITE_URL)
- * contains a valid HTTPS URL.
+ * Site-wide entities. Every value is supported by supplied studio information;
+ * there are deliberately no ratings, street address, phone number, social
+ * profiles, pricing, or service-area claims. URL-based fields are emitted only
+ * when SITE_URL (or the legacy NEXT_PUBLIC_SITE_URL) contains a valid HTTPS
+ * URL.
  */
 export function getSiteJsonLd(): JsonLdObject {
   const siteUrl = getSiteUrl();
@@ -112,8 +113,14 @@ export function getSiteJsonLd(): JsonLdObject {
       name: site.studio,
       ...(siteUrl ? { url: `${siteUrl}/` } : {}),
       email: site.email,
+      address: {
+        "@type": "PostalAddress",
+        addressLocality: site.location.city,
+        addressRegion: site.location.region,
+        addressCountry: site.location.countryCode,
+      },
       description:
-        "An independent studio for thoughtful automations and focused digital products.",
+        `An independent studio in ${site.location.display} for thoughtful automations and focused digital products.`,
       slogan: "Talk it out. Ship it out.",
       founder: {
         "@type": "Person",
@@ -163,6 +170,7 @@ export function getPageJsonLd({
   image,
   type = "WebPage",
   serviceKeys,
+  breadcrumbs = [],
 }: PageSchema): JsonLdObject {
   const url = pageUrl(path);
   const website = websiteId();
@@ -178,7 +186,7 @@ export function getPageJsonLd({
     ...(serviceKeys?.length
       ? { mainEntity: serviceKeys.map(getServiceReference) }
       : { mainEntity: organizationReference() }),
-    ...(url
+    ...(url && image
       ? {
           primaryImageOfPage: {
             "@type": "ImageObject",
@@ -189,23 +197,28 @@ export function getPageJsonLd({
     ...(breadcrumbId ? { breadcrumb: { "@id": breadcrumbId } } : {}),
   };
 
-  const homeItem = breadcrumbItem(1, "Home", "/");
-  const currentItem = breadcrumbItem(
-    2,
-    name.replace(" — Rubberduck", ""),
-    path,
-  );
+  const breadcrumbItems = [
+    breadcrumbItem(1, "Home", "/"),
+    ...breadcrumbs.map((breadcrumb, index) =>
+      breadcrumbItem(index + 2, breadcrumb.name, breadcrumb.path),
+    ),
+    breadcrumbItem(
+      breadcrumbs.length + 2,
+      name.replace(" — Rubberduck", ""),
+      path,
+    ),
+  ].filter(Boolean);
 
   return {
     "@context": "https://schema.org",
     "@graph": [
       page,
-      ...(breadcrumbId && homeItem && currentItem
+      ...(breadcrumbId && breadcrumbItems.length >= 2
         ? [
             {
               "@type": "BreadcrumbList",
               "@id": breadcrumbId,
-              itemListElement: [homeItem, currentItem],
+              itemListElement: breadcrumbItems,
             },
           ]
         : []),

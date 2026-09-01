@@ -19,8 +19,8 @@ export function CTABand({
   availability?: string;
 }) {
   return (
-    <div className="mx-auto flex max-w-xl flex-col items-center gap-6 text-center">
-      <h2 className="font-display text-4xl leading-[0.98] tracking-tight text-white sm:text-6xl">
+    <div className="rd-route-copy mx-auto flex max-w-xl flex-col items-center gap-6 text-center">
+      <h2 className="text-balance font-heading text-4xl leading-[0.9] font-semibold tracking-[-0.055em] text-white sm:text-6xl">
         {typeof headline === "string" ? (
           <BlurInText text={headline} trigger="inview" />
         ) : (

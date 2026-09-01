@@ -8,12 +8,14 @@ const waitMs = Number(process.env.WAIT_MS ?? 1500);
 const key = process.env.KEY;
 const wheelDelta = Number(process.env.WHEEL_DELTA ?? 0);
 const click = process.env.CLICK;
+const viewportWidth = Number(process.env.VIEWPORT_WIDTH ?? 1400);
+const viewportHeight = Number(process.env.VIEWPORT_HEIGHT ?? 900);
 
 mkdirSync(resolve(out, ".."), { recursive: true });
 
 const browser = await chromium.launch();
 const ctx = await browser.newContext({
-  viewport: { width: 1400, height: 900 },
+  viewport: { width: viewportWidth, height: viewportHeight },
   deviceScaleFactor: 2,
 });
 const page = await ctx.newPage();

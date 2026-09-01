@@ -55,9 +55,16 @@ const FRAGMENT = /* glsl */ `
     float falloff = smoothstep(0.6, 0.15, length(c));
 
     vec2 uv0 = vUv * 5.5 + vec2(uTime * 0.07, uTime * 0.045);
-    vec2 uv1 = vUv * 7.3 + vec2(-uTime * 0.052, uTime * 0.063);
     vec2 n0 = texture2D(uNormalMap, uv0).rg;
-    vec2 n1 = texture2D(uNormalMap, uv1).bg;
+    // The constrained tier uses one texture read and a static pattern. Its
+    // feathered, lower-intensity result preserves an underwater light cue
+    // without another animated full-screen fragment pass on phones.
+    #ifdef LOW_POWER_CAUSTICS
+      vec2 n1 = n0.yx;
+    #else
+      vec2 uv1 = vUv * 7.3 + vec2(-uTime * 0.052, uTime * 0.063);
+      vec2 n1 = texture2D(uNormalMap, uv1).bg;
+    #endif
     float ridgeA = 1.0 - abs(n0.x - n1.x) * 3.0;
     float ridgeB = 1.0 - abs(n0.y - n1.y) * 3.0;
     float caustics = pow(clamp(ridgeA * ridgeB, 0.0, 1.0), 5.0);
@@ -69,7 +76,11 @@ const FRAGMENT = /* glsl */ `
   }
 `;
 
-export function Caustics() {
+type CausticsProps = {
+  lowPower?: boolean;
+};
+
+export function Caustics({ lowPower = false }: CausticsProps) {
   const submerged = useView() !== "home";
   const normalMap = useTexture("/textures/waternormals.jpg");
 
@@ -100,6 +111,7 @@ export function Caustics() {
       new THREE.ShaderMaterial({
         vertexShader: VERTEX,
         fragmentShader: FRAGMENT,
+        ...(lowPower ? { defines: { LOW_POWER_CAUSTICS: 1 } } : {}),
         uniforms: {
           uTime: { value: 0 },
           uIntensity: { value: 0 },
@@ -112,7 +124,7 @@ export function Caustics() {
         side: THREE.DoubleSide,
         toneMapped: false,
       }),
-    [normalMap],
+    [lowPower, normalMap],
   );
 
   // Dispose GPU resources on unmount / hot-reload so nothing leaks.
@@ -126,13 +138,16 @@ export function Caustics() {
   useFrame((_, delta) => {
     const u = material.uniforms;
 
-    // Crawl the noise field. Hold still under reduced-motion (fade only).
-    if (!reducedMotion) {
+    // Keep the mobile version still. A static pool-light cue feels intentional
+    // and frees a full-screen shader from continuous texture scrolling.
+    if (!lowPower && !reducedMotion) {
       u.uTime.value += delta * SPEED;
     }
 
-    // Frame-rate-independent lerp toward 1 underwater / 0 on the hero.
-    const target = submerged ? 1 : 0;
+    // Keep the transition smooth, but make constrained devices use a dim,
+    // stable sheet rather than animating another visual layer alongside the
+    // water surface.
+    const target = submerged ? (lowPower ? 0.44 : 1) : 0;
     const k = 1 - Math.pow(0.001, delta); // ~1s smooth approach
     u.uIntensity.value += (target - u.uIntensity.value) * k;
   });

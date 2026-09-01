@@ -1,6 +1,7 @@
 import type { Metadata } from "next";
 import { JsonLd, getSiteJsonLd } from "@/app/_components/seo/JsonLd";
 import { createRootMetadata } from "@/app/_components/seo/metadata";
+import { PondBackdrop } from "@/app/_components/PondBackdrop";
 import { RouteTransitionProvider } from "@/app/_components/RouteTransition";
 import { Anton, Bricolage_Grotesque, Geist, Geist_Mono } from "next/font/google";
 import "./globals.css";
@@ -56,7 +57,14 @@ export default function RootLayout({
           /contact) scroll vertically. The home experience clips itself via
           Stage's own `overflow-hidden` main, so the hero is unaffected. */}
       <body className="min-h-full bg-[#4ec5f5]">
+        <a
+          href="#main-content"
+          className="sr-only fixed top-4 left-4 z-[100] inline-flex min-h-11 items-center rounded-full bg-[#06263f] px-4 py-3 text-sm font-semibold text-white ring-2 ring-[#facc15] focus:not-sr-only focus:outline-none"
+        >
+          Skip to main content
+        </a>
         <JsonLd data={getSiteJsonLd()} />
+        <PondBackdrop />
         <RouteTransitionProvider>{children}</RouteTransitionProvider>
       </body>
     </html>

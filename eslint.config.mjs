@@ -12,6 +12,12 @@ const eslintConfig = defineConfig([
     "out/**",
     "build/**",
     "next-env.d.ts",
+    // Local agent libraries and private config live beside the app in this
+    // workspace, but they are not application source and should not make
+    // the site's validation or editor tooling scan hundreds of scripts.
+    ".agents/**",
+    ".claude/**",
+    ".codex/**",
   ]),
 ]);
 

@@ -19,17 +19,12 @@ const links: ReadonlyArray<{ href: `/${StoryPage}`; label: string; page: StoryPa
  */
 export function StoryPageNav({ active }: StoryPageNavProps) {
   return (
-    <header className="sticky top-0 z-40 px-3 pt-3 sm:px-6 sm:pt-5">
-      <div className="relative mx-auto flex max-w-[92rem] flex-wrap items-center justify-between gap-3 overflow-hidden rounded-[1.4rem] border border-white/24 bg-[#06263f]/82 px-3 py-3 shadow-[0_18px_52px_-34px_rgba(0,0,0,0.82)] backdrop-blur-xl sm:flex-nowrap sm:px-4">
-        <div
-          aria-hidden="true"
-          className="pointer-events-none absolute inset-x-7 bottom-0 h-px bg-gradient-to-r from-transparent via-white/45 to-transparent"
-        />
-
+    <header className="sticky top-0 z-40 border-b border-white/14 bg-[#06243a]/96 shadow-[0_12px_36px_-28px_rgba(0,0,0,0.92)]">
+      <div className="relative mx-auto flex max-w-6xl flex-wrap items-center justify-between gap-3 px-6 py-3 sm:flex-nowrap sm:px-8 lg:px-10">
         <RouteTransitionLink
           href="/"
           aria-label="Rubberduck home"
-          className="group relative flex min-h-11 shrink-0 items-center gap-2 rounded-xl px-2 text-white outline-none transition-opacity duration-300 hover:opacity-75 focus-visible:ring-2 focus-visible:ring-[#facc15] focus-visible:ring-offset-2 focus-visible:ring-offset-[#06263f]"
+          className="group relative flex min-h-11 shrink-0 items-center gap-2 rounded-xl px-1 text-white outline-none transition-opacity duration-200 hover:opacity-75 focus-visible:ring-2 focus-visible:ring-[#facc15] focus-visible:ring-offset-2 focus-visible:ring-offset-[#06243a]"
         >
           <span
             aria-hidden="true"
@@ -42,7 +37,7 @@ export function StoryPageNav({ active }: StoryPageNavProps) {
         </RouteTransitionLink>
 
         <nav aria-label="Primary">
-          <ul className="relative flex items-center gap-1 rounded-2xl bg-white/10 p-1 ring-1 ring-white/16">
+          <ul className="relative flex items-center gap-1">
             {links.map((link) => {
               const isActive = active === link.page;
 
@@ -52,10 +47,10 @@ export function StoryPageNav({ active }: StoryPageNavProps) {
                     href={link.href}
                     aria-current={isActive ? "page" : undefined}
                     className={
-                      "flex min-h-10 items-center rounded-xl px-3 text-sm font-semibold tracking-tight outline-none transition-colors duration-300 focus-visible:ring-2 focus-visible:ring-[#facc15] focus-visible:ring-offset-2 focus-visible:ring-offset-[#06263f] sm:px-4 sm:text-base " +
+                      "flex min-h-11 items-center rounded-xl px-3 text-sm font-semibold tracking-tight outline-none transition-colors duration-200 focus-visible:ring-2 focus-visible:ring-[#facc15] focus-visible:ring-offset-2 focus-visible:ring-offset-[#06243a] sm:px-4 sm:text-base " +
                       (isActive
-                        ? "bg-white/16 text-white shadow-[0_7px_18px_-12px_rgba(0,0,0,0.9)]"
-                        : "text-white/72 hover:bg-white/12 hover:text-white")
+                        ? "bg-white/12 text-white shadow-[inset_0_-2px_0_0_#facc15]"
+                        : "text-white/74 hover:bg-white/8 hover:text-white")
                     }
                   >
                     {link.label}
