@@ -39,9 +39,9 @@ export function GameOfLife({
     const ctx = canvas.getContext("2d");
     if (!ctx) return;
 
-    const reduceMotion = window.matchMedia(
+    const motionQuery = window.matchMedia(
       "(prefers-reduced-motion: reduce)",
-    ).matches;
+    );
 
     // Grid state, sized on resize.
     let cols = 0;
@@ -150,6 +150,7 @@ export function GameOfLife({
       next = new Uint8Array(cols * rows);
       display = new Float32Array(cols * rows);
       seed();
+      display.set(grid);
       draw();
     };
 
@@ -162,25 +163,16 @@ export function GameOfLife({
         : null;
     sizeObserver?.observe(canvas);
 
-    // Reduced motion: one static frame, no animation, no observers.
-    if (reduceMotion) {
-      display.set(grid);
-      draw();
-      return () => {
-        sizeObserver?.disconnect();
-        window.removeEventListener("resize", onResize);
-      };
-    }
-
     let rafId = 0;
     let running = false;
+    let visible = false;
     let acc = 0;
     let sinceReseed = 0;
     let last = 0;
 
     const loop = (now: number) => {
       if (!running) return;
-      const dt = last ? now - last : 0;
+      const dt = last ? Math.min(now - last, 100) : 0;
       last = now;
       acc += dt;
       sinceReseed += dt;
@@ -218,21 +210,38 @@ export function GameOfLife({
       cancelAnimationFrame(rafId);
     };
 
-    // Only animate while the band is on-screen.
+    const syncPlayback = () => {
+      if (visible && !document.hidden && !motionQuery.matches) {
+        start();
+      } else {
+        stop();
+        if (motionQuery.matches) {
+          display.set(grid);
+          draw();
+        }
+      }
+    };
+
+    // Only animate while the band and its browser tab are visible. Listen for
+    // motion-preference changes so a static view also survives live settings.
     const observer = new IntersectionObserver(
       ([entry]) => {
-        if (entry.isIntersecting) start();
-        else stop();
+        visible = entry.isIntersecting;
+        syncPlayback();
       },
       { threshold: 0 },
     );
     observer.observe(canvas);
+    document.addEventListener("visibilitychange", syncPlayback);
+    motionQuery.addEventListener("change", syncPlayback);
 
     return () => {
       stop();
       observer.disconnect();
       sizeObserver?.disconnect();
       window.removeEventListener("resize", onResize);
+      document.removeEventListener("visibilitychange", syncPlayback);
+      motionQuery.removeEventListener("change", syncPlayback);
     };
   }, [height, cell, mode]);
 

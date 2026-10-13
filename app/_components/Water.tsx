@@ -3,7 +3,6 @@
 /* R3F render-loop code intentionally mutates Three.js objects and uniforms. */
 /* eslint-disable react-hooks/immutability */
 
-import { useFBO } from "@react-three/drei";
 import { useFrame, useThree } from "@react-three/fiber";
 import gsap from "gsap";
 import { useEffect, useMemo, useRef } from "react";
@@ -38,6 +37,14 @@ const CAMERA = {
   },
 };
 
+const MOBILE_HOME_CAMERA = {
+  // A portrait phone needs to see the bank, water and companion together.
+  // This gentle diorama angle gives the pond enough breathing room that the
+  // narrow viewport does not reduce the scene to a single floating model.
+  position: new THREE.Vector3(-0.8, 4.6, 15.2),
+  lookAt: new THREE.Vector3(-0.8, -0.35, -0.9),
+};
+
 // The home camera begins at duck height, then deliberately opens into a
 // readable overhead view of the whole pool. Keeping this as a second endpoint
 // (rather than adding free orbit controls) preserves the composed hero and
@@ -48,6 +55,7 @@ const SANDBOX_CAMERA = {
   fov: 43,
 };
 const HOME_FOV = 28;
+const MOBILE_HOME_FOV = 42;
 const SANDBOX_WHEEL_SENSITIVITY = 0.00115;
 
 // Desktop pilot mode sits just ahead of and above the selected duck's head.
@@ -122,27 +130,42 @@ function detectLowPowerDevice(renderer: THREE.WebGLRenderer): boolean {
   );
 }
 
+function lowPowerPixelRatioCap() {
+  const nav = navigator as Navigator & { deviceMemory?: number };
+  const constrained =
+    (navigator.hardwareConcurrency ?? 8) <= 4 ||
+    (nav.deviceMemory ?? 8) <= 4;
+  // Modern phone GPUs can afford a crisp 2x cap once the capture pass,
+  // shadows and HDRI are gone. Hold the most constrained devices at 1.5x.
+  return constrained ? 1.5 : 2;
+}
+
 /**
- * Owns the camera dive and one reduced-resolution scene capture used for
- * refraction. A full Evan-Wallace style simulation needs several float-target
- * passes plus ray tracing; this hybrid spends a single inexpensive pass and
- * puts the remaining water cues in the surface shader.
+ * Owns the camera dive and, on desktop, one scene capture used for refraction.
+ * A full Evan-Wallace style simulation needs several float-target passes plus
+ * ray tracing. Phones deliberately use StylizedWater's single-pass optical
+ * fallback instead: it keeps the pond's sky, depth and wake cues without a
+ * second render of every GLB in the scene.
  */
-export function WaterSurface() {
+type WaterSurfaceProps = {
+  /** Fired after the water material has mounted and its source is resolved. */
+  onReady?: () => void;
+};
+
+export function WaterSurface({ onReady }: WaterSurfaceProps) {
   const view = useView();
   const explorerActive = useDuckExplorerActive();
   const { camera, scene, gl, size, setDpr } = useThree();
   const lowPower = useMemo(() => detectLowPowerDevice(gl), [gl]);
   const pixelRatio = Math.min(gl.getPixelRatio(), lowPower ? 1 : 1.5);
-  // Refraction is a second render of the scene. On touch/low-power devices it
-  // deliberately uses a compact target and updates less often: the surface
-  // shader still moves continuously, while the captured world is calm enough
-  // that a 10–15fps refresh is visually stable. This keeps the pond from
-  // spending most of its mobile frame budget rendering itself twice.
-  const captureScale = lowPower ? 0.4 : 1;
-  const captureCap = lowPower ? 448 : 2048;
-  const minCaptureWidth = lowPower ? 160 : 192;
-  const minCaptureHeight = lowPower ? 112 : 128;
+  // Refraction is a second full scene render. It is valuable on desktop, but
+  // even a compact capture makes a phone load every model twice per refresh.
+  // The mobile shader has a deliberately art-directed, stable fallback, so it
+  // needs no FBO allocation or capture pass at all.
+  const captureScale = 1;
+  const captureCap = 2048;
+  const minCaptureWidth = 192;
+  const minCaptureHeight = 128;
   const captureWidth = Math.max(
     minCaptureWidth,
     Math.min(captureCap, Math.round(size.width * pixelRatio * captureScale)),
@@ -151,24 +174,45 @@ export function WaterSurface() {
     minCaptureHeight,
     Math.min(captureCap, Math.round(size.height * pixelRatio * captureScale)),
   );
-  const sceneTarget = useFBO(captureWidth, captureHeight, {
-    samples: 0,
-    depthBuffer: true,
-    stencilBuffer: false,
-    type: THREE.UnsignedByteType,
-    format: THREE.RGBAFormat,
-    colorSpace: THREE.SRGBColorSpace,
-    minFilter: THREE.LinearFilter,
-    magFilter: THREE.LinearFilter,
-    generateMipmaps: false,
-  });
+  const sceneTarget = useMemo(() => {
+    if (lowPower) return null;
+
+    // Keep one target/texture identity across resizes. Replacing it used to
+    // rebuild the water geometry and recompile its material on every resize.
+    const target = new THREE.WebGLRenderTarget(1, 1, {
+      depthBuffer: true,
+      stencilBuffer: false,
+      type: THREE.UnsignedByteType,
+      format: THREE.RGBAFormat,
+      minFilter: THREE.LinearFilter,
+      magFilter: THREE.LinearFilter,
+      generateMipmaps: false,
+    });
+    target.texture.colorSpace = THREE.SRGBColorSpace;
+    return target;
+  }, [lowPower]);
+
+  const captureStaleRef = useRef(true);
+  useEffect(() => {
+    sceneTarget?.setSize(captureWidth, captureHeight);
+    captureStaleRef.current = true;
+  }, [captureHeight, captureWidth, sceneTarget]);
+
+  useEffect(
+    () => () => {
+      sceneTarget?.dispose();
+    },
+    [sceneTarget],
+  );
 
   const waterRef = useRef<WaterHandle>(null);
-  const lookRef = useRef(CAMERA.home.lookAt.clone());
+  const homeCamera = lowPower ? MOBILE_HOME_CAMERA : CAMERA.home;
+  const homeFov = lowPower ? MOBILE_HOME_FOV : HOME_FOV;
+  const lookRef = useRef(homeCamera.lookAt.clone());
   const timelineRef = useRef<gsap.core.Timeline | null>(null);
   const submergedRef = useRef(0);
   const frameRef = useRef(0);
-  const captureEveryRef = useRef(lowPower ? 4 : 2);
+  const captureEveryRef = useRef(2);
   const performanceWindowRef = useRef({ elapsed: 0, frames: 0 });
   const viewRef = useRef(view);
   // Wheel input is deliberately held in refs: a scroll tick must not trigger a
@@ -194,7 +238,11 @@ export function WaterSurface() {
   const textureMatrix = useMemo(() => new THREE.Matrix4(), []);
 
   useEffect(() => {
-    if (lowPower) setDpr(1);
+    if (lowPower) {
+      // A small Retina-quality cap removes the conspicuous 1x shimmer on
+      // phone displays without returning to the 3x full-resolution workload.
+      setDpr(Math.min(window.devicePixelRatio || 1, lowPowerPixelRatioCap()));
+    }
   }, [lowPower, setDpr]);
 
   useEffect(() => {
@@ -275,7 +323,7 @@ export function WaterSurface() {
 
   useEffect(() => {
     const diving = view !== "home";
-    const destination = diving ? CAMERA.underwater : CAMERA.home;
+    const destination = diving ? CAMERA.underwater : homeCamera;
     const background = diving
       ? BACKGROUND_UNDERWATER
       : BACKGROUND_HOME;
@@ -338,27 +386,19 @@ export function WaterSurface() {
     return () => {
       timeline.kill();
     };
-  }, [camera, scene, view]);
+  }, [camera, homeCamera, scene, view]);
 
   useFrame((_, delta) => {
-    const performanceWindow = performanceWindowRef.current;
-    performanceWindow.elapsed += Math.min(delta, 0.1);
-    performanceWindow.frames += 1;
-    if (performanceWindow.elapsed >= 1.5) {
-      const fps = performanceWindow.frames / performanceWindow.elapsed;
-      captureEveryRef.current = lowPower
-        ? fps < 34
-          ? 6
-          : fps < 50
-            ? 5
-            : 4
-        : fps < 48
-          ? 3
-          : fps > 58
-            ? 1
-            : 2;
-      performanceWindow.elapsed = 0;
-      performanceWindow.frames = 0;
+    if (!lowPower) {
+      const performanceWindow = performanceWindowRef.current;
+      performanceWindow.elapsed += Math.min(delta, 0.1);
+      performanceWindow.frames += 1;
+      if (performanceWindow.elapsed >= 1.5) {
+        const fps = performanceWindow.frames / performanceWindow.elapsed;
+        captureEveryRef.current = fps < 48 ? 3 : fps > 58 ? 1 : 2;
+        performanceWindow.elapsed = 0;
+        performanceWindow.frames = 0;
+      }
     }
 
     const isExploringHome =
@@ -440,16 +480,16 @@ export function WaterSurface() {
         const returnBlend = reducedMotion
           ? 1
           : dampFactor(EXPLORER_HOME_RETURN_RESPONSE, delta);
-        camera.position.lerp(CAMERA.home.position, returnBlend);
-        lookRef.current.lerp(CAMERA.home.lookAt, returnBlend);
-        dampFov(camera, HOME_FOV, delta, EXPLORER_HOME_RETURN_RESPONSE);
+        camera.position.lerp(homeCamera.position, returnBlend);
+        lookRef.current.lerp(homeCamera.lookAt, returnBlend);
+        dampFov(camera, homeFov, delta, EXPLORER_HOME_RETURN_RESPONSE);
 
         if (
-          camera.position.distanceToSquared(CAMERA.home.position) < 0.0004 &&
-          lookRef.current.distanceToSquared(CAMERA.home.lookAt) < 0.0004
+          camera.position.distanceToSquared(homeCamera.position) < 0.0004 &&
+          lookRef.current.distanceToSquared(homeCamera.lookAt) < 0.0004
         ) {
-          camera.position.copy(CAMERA.home.position);
-          lookRef.current.copy(CAMERA.home.lookAt);
+          camera.position.copy(homeCamera.position);
+          lookRef.current.copy(homeCamera.lookAt);
           explorerWasActiveRef.current = false;
         }
       } else {
@@ -458,7 +498,7 @@ export function WaterSurface() {
           sandboxZoomTargetRef.current > 0.0001;
         const activeView = viewRef.current;
         const baseCamera =
-          activeView === "home" ? CAMERA.home : CAMERA.underwater;
+          activeView === "home" ? homeCamera : CAMERA.underwater;
         const cameraBlend = reducedMotion
           ? 1
           : 1 - Math.pow(0.0008, Math.min(delta, 0.1));
@@ -486,7 +526,7 @@ export function WaterSurface() {
 
           if (camera instanceof THREE.PerspectiveCamera) {
             const fov = THREE.MathUtils.lerp(
-              HOME_FOV,
+              homeFov,
               SANDBOX_CAMERA.fov,
               easedZoom,
             );
@@ -501,7 +541,7 @@ export function WaterSurface() {
           // underwater), rather than leaving the lens stranded in between.
           camera.position.lerp(baseCamera.position, cameraBlend);
           lookRef.current.lerp(baseCamera.lookAt, cameraBlend);
-          dampFov(camera, HOME_FOV, delta, EXPLORER_HOME_RETURN_RESPONSE);
+          dampFov(camera, homeFov, delta, EXPLORER_HOME_RETURN_RESPONSE);
         }
       }
     }
@@ -583,23 +623,59 @@ export function WaterSurface() {
       .multiply(mesh.matrixWorld);
     material.uniforms.uTextureMatrix.value.copy(textureMatrix);
 
-    frameRef.current += 1;
-    if (frameRef.current % captureEveryRef.current !== 0) return;
-
-    const previousTarget = gl.getRenderTarget();
-    mesh.visible = false;
-    gl.setRenderTarget(sceneTarget);
-    gl.clear(true, true, true);
-    gl.render(scene, camera);
-    gl.setRenderTarget(previousTarget);
-    mesh.visible = true;
   }, -10);
+
+  // Render after every animation callback has updated its transforms. Both
+  // passes share the very same current-frame shadows and world matrices.
+  // A positive priority replaces R3F's default render, so there is no third
+  // main-scene draw after this callback.
+  useFrame(() => {
+    const mesh = waterRef.current?.mesh;
+    const previousTarget = gl.getRenderTarget();
+    const previousAutoUpdate = gl.shadowMap.autoUpdate;
+    const previousMatrixAutoUpdate = scene.matrixWorldAutoUpdate;
+    const wasVisible = mesh?.visible ?? false;
+
+    scene.updateMatrixWorld();
+    scene.matrixWorldAutoUpdate = false;
+    gl.shadowMap.autoUpdate = false;
+    gl.shadowMap.needsUpdate = true;
+
+    try {
+      // At the exact overhead endpoint aboveWater() gives refraction zero
+      // weight (bedVeil = 1). Its sky reflections and wakes still render in
+      // full, while the scene capture would produce no visible contribution.
+      const needsRefraction = submergedRef.current >= 0.02 || camera.position.y < 7.5;
+      if (!needsRefraction) captureStaleRef.current = true;
+      if (
+        sceneTarget && mesh && needsRefraction &&
+        (captureStaleRef.current || frameRef.current % captureEveryRef.current === 0)
+      ) {
+        mesh.visible = false;
+        gl.setRenderTarget(sceneTarget);
+        // The renderer already clears the target before render; a separate
+        // clear repeated the full framebuffer operation for no visual change.
+        gl.render(scene, camera);
+        captureStaleRef.current = false;
+      }
+      frameRef.current += 1;
+      if (mesh) mesh.visible = wasVisible;
+      gl.setRenderTarget(previousTarget);
+      gl.render(scene, camera);
+    } finally {
+      if (mesh) mesh.visible = wasVisible;
+      gl.setRenderTarget(previousTarget);
+      gl.shadowMap.autoUpdate = previousAutoUpdate;
+      scene.matrixWorldAutoUpdate = previousMatrixAutoUpdate;
+    }
+  }, 1);
 
   return (
     <StylizedWater
       ref={waterRef}
-      sceneTexture={sceneTarget.texture}
+      sceneTexture={sceneTarget?.texture ?? null}
       lowPower={lowPower}
+      onReady={onReady}
     />
   );
 }

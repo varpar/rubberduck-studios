@@ -1,5 +1,3 @@
-"use client";
-
 /* ==========================================================================
  * BlurInText — stable, semantic display-text wrapper.
  *

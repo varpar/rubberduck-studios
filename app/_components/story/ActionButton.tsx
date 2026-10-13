@@ -3,8 +3,8 @@
 import type { ReactNode } from "react";
 import { IconArrowRight } from "../icons";
 
-/* The 21st "Motion Button", adapted as the studio's yellow conversion action:
- * an ink circle holds the arrow, then opens across the pill on hover. */
+/* The studio's yellow conversion action keeps its label on yellow in every
+ * state; the arrow supplies motion without sweeping a dark fill under text. */
 export function ActionButton({
   href,
   onClick,
@@ -23,7 +23,7 @@ export function ActionButton({
     <>
       <span
         aria-hidden
-        className="pointer-events-none absolute top-1 bottom-1 left-1 w-10 rounded-full bg-[#06263f] transition-[width] duration-500 ease-out group-hover/btn:w-[calc(100%-0.5rem)] motion-reduce:transition-none"
+        className="pointer-events-none absolute top-1 bottom-1 left-1 w-10 rounded-full bg-[#06263f]"
       />
       <span
         aria-hidden
@@ -31,7 +31,7 @@ export function ActionButton({
       >
         <IconArrowRight size={20} />
       </span>
-      <span className="relative z-10 pr-5 pl-2 text-sm font-semibold tracking-tight whitespace-nowrap text-[#06263f] motion-reduce:transition-none">
+      <span className="relative z-10 pr-5 pl-2 text-sm font-semibold tracking-tight whitespace-nowrap text-[#06263f]">
         {children}
       </span>
     </>

@@ -2,7 +2,7 @@
 
 import dynamic from "next/dynamic";
 import { usePathname } from "next/navigation";
-import { useLayoutEffect, useState } from "react";
+import { useEffect, useLayoutEffect, useState } from "react";
 import { nav, type View } from "../_state/navigation";
 import { DuckKeyboardControls } from "./DuckKeyboardControls";
 
@@ -28,13 +28,52 @@ export function PondBackdrop() {
     // client-only Canvas mounts. Moving between /work and /work/[slug] leaves
     // `view` unchanged, so neither the state nor the world restarts.
     nav.setView(view);
-
-    // One frame is enough to let the external scene store settle before the
-    // dynamic Canvas mounts on a direct deep link. Scheduling avoids a
-    // synchronous effect→render cascade while keeping the first paint clean.
-    const frame = window.requestAnimationFrame(() => setSceneReady(true));
-    return () => window.cancelAnimationFrame(frame);
   }, [view]);
+
+  useEffect(() => {
+    let firstFrame = 0;
+    let paintFrame = 0;
+    let idleCallback: number | undefined;
+    let fallbackTimer: number | undefined;
+
+    const cancelScheduledStart = () => {
+      window.cancelAnimationFrame(firstFrame);
+      window.cancelAnimationFrame(paintFrame);
+      if (idleCallback !== undefined) window.cancelIdleCallback(idleCallback);
+      if (fallbackTimer !== undefined) window.clearTimeout(fallbackTimer);
+    };
+
+    const startScene = () => {
+      if (document.hidden) return;
+      document.removeEventListener("visibilitychange", scheduleStart);
+      setSceneReady(true);
+    };
+
+    function scheduleStart() {
+      cancelScheduledStart();
+      if (document.hidden) return;
+
+      // Give readable content and navigation a paint before parsing the 3D
+      // bundle or allocating its GPU resources. The timeout bounds the wait
+      // on a busy device; no model or reflection quality is reduced.
+      firstFrame = window.requestAnimationFrame(() => {
+        paintFrame = window.requestAnimationFrame(() => {
+          if (typeof window.requestIdleCallback === "function") {
+            idleCallback = window.requestIdleCallback(startScene, { timeout: 250 });
+          } else {
+            fallbackTimer = window.setTimeout(startScene, 0);
+          }
+        });
+      });
+    }
+
+    scheduleStart();
+    document.addEventListener("visibilitychange", scheduleStart);
+    return () => {
+      cancelScheduledStart();
+      document.removeEventListener("visibilitychange", scheduleStart);
+    };
+  }, []);
 
   return (
     <>

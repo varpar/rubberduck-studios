@@ -3,16 +3,11 @@ import { JsonLd, getSiteJsonLd } from "@/app/_components/seo/JsonLd";
 import { createRootMetadata } from "@/app/_components/seo/metadata";
 import { PondBackdrop } from "@/app/_components/PondBackdrop";
 import { RouteTransitionProvider } from "@/app/_components/RouteTransition";
-import { Anton, Bricolage_Grotesque, Geist, Geist_Mono } from "next/font/google";
+import { Anton, Bricolage_Grotesque, Geist } from "next/font/google";
 import "./globals.css";
 
 const geistSans = Geist({
   variable: "--font-geist-sans",
-  subsets: ["latin"],
-});
-
-const geistMono = Geist_Mono({
-  variable: "--font-geist-mono",
   subsets: ["latin"],
 });
 
@@ -26,7 +21,7 @@ const headingFont = Bricolage_Grotesque({
   variable: "--font-heading",
   subsets: ["latin"],
   display: "swap",
-  weight: ["400", "500", "600", "700", "800"],
+  weight: "variable",
 });
 
 // Anton — a tall, heavy condensed display face. Drives the big nav headings
@@ -51,7 +46,7 @@ export default function RootLayout({
   return (
     <html
       lang="en"
-      className={`${geistSans.variable} ${geistMono.variable} ${headingFont.variable} ${displayFont.variable} h-full antialiased`}
+      className={`${geistSans.variable} ${headingFont.variable} ${displayFont.variable} h-full antialiased`}
     >
       {/* No global overflow-hidden anymore: the content routes (/work, /about,
           /contact) scroll vertically. The home experience clips itself via

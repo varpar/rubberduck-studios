@@ -50,7 +50,7 @@ export function StoryPageNav({ active }: StoryPageNavProps) {
                       "flex min-h-11 items-center rounded-xl px-3 text-sm font-semibold tracking-tight outline-none transition-colors duration-200 focus-visible:ring-2 focus-visible:ring-[#facc15] focus-visible:ring-offset-2 focus-visible:ring-offset-[#06243a] sm:px-4 sm:text-base " +
                       (isActive
                         ? "bg-white/12 text-white shadow-[inset_0_-2px_0_0_#facc15]"
-                        : "text-white/74 hover:bg-white/8 hover:text-white")
+                        : "text-[var(--rd-text-body)] hover:bg-white/8 hover:text-white")
                     }
                   >
                     {link.label}

@@ -37,7 +37,7 @@ export function ContactStory({ embedded = false }: { embedded?: boolean }) {
                 className="transition-transform duration-300 ease-out group-hover/cta:translate-x-1 motion-reduce:transition-none"
               />
             </a>
-            <span className="flex items-center gap-2 text-sm text-white/80">
+            <span className="flex items-center gap-2 text-sm text-[var(--rd-text-body)]">
               <span aria-hidden="true" className="h-2 w-2 rounded-full bg-[#facc15]" />
               {site.availability}
             </span>
@@ -57,7 +57,7 @@ export function ContactStory({ embedded = false }: { embedded?: boolean }) {
           {expectSteps.map((step) => (
             <li
               key={step.n}
-              className="rd-route-copy relative overflow-hidden rounded-[1.75rem] border border-white/20 bg-[#06263f]/64 p-7 shadow-[0_20px_56px_-42px_rgba(0,0,0,0.64)] backdrop-blur-md"
+              className="rd-route-copy relative overflow-hidden rounded-[1.75rem] border border-white/20 bg-[var(--rd-surface)] p-7 shadow-[0_20px_56px_-42px_rgba(0,0,0,0.64)]"
             >
               <span
                 aria-hidden="true"
@@ -67,7 +67,7 @@ export function ContactStory({ embedded = false }: { embedded?: boolean }) {
               <h3 className="mt-4 font-display text-2xl tracking-tight text-white">
                 {step.title}
               </h3>
-              <p className="mt-2 text-sm leading-relaxed text-white/80">
+              <p className="mt-2 text-sm leading-relaxed text-[var(--rd-text-body)]">
                 {step.note}
               </p>
             </li>

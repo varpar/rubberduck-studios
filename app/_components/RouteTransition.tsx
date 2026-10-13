@@ -7,6 +7,7 @@ import {
   useCallback,
   useContext,
   useEffect,
+  useMemo,
   useRef,
   useState,
   type ComponentProps,
@@ -57,6 +58,10 @@ export function RouteTransitionProvider({ children }: { children: ReactNode }) {
 
     previousPathname.current = pathname;
     pendingNavigation.current = false;
+    if (exitTimer.current !== null) {
+      window.clearTimeout(exitTimer.current);
+      exitTimer.current = null;
+    }
     let frame: number | null = null;
 
     if (prefersReducedMotion()) {
@@ -99,8 +104,12 @@ export function RouteTransitionProvider({ children }: { children: ReactNode }) {
     [pathname, router],
   );
 
+  // Phase changes only affect the route shell's CSS. Keep the navigation
+  // context stable so every link does not re-render for each dissolve frame.
+  const context = useMemo(() => ({ transitionTo }), [transitionTo]);
+
   return (
-    <RouteTransitionContext.Provider value={{ transitionTo }}>
+    <RouteTransitionContext.Provider value={context}>
       <div
         className="rd-route-shell"
         data-route-kind={pathname === "/" ? "home" : "story"}

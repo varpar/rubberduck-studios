@@ -1,7 +1,16 @@
 "use client";
 
 import { useGLTF } from "@react-three/drei";
-import { Suspense, useEffect, useMemo, useRef } from "react";
+import { useFrame } from "@react-three/fiber";
+import {
+  Suspense,
+  type ReactNode,
+  useCallback,
+  useEffect,
+  useMemo,
+  useRef,
+  useState,
+} from "react";
 import * as THREE from "three";
 
 type PondAssetProps = {
@@ -11,6 +20,15 @@ type PondAssetProps = {
   scale: number | [number, number, number];
   modelOffset?: [number, number, number];
   castShadow?: boolean;
+};
+
+type AssetEntranceProps = {
+  children: ReactNode;
+  position?: [number, number, number];
+  rotation?: [number, number, number];
+  scale?: number | [number, number, number];
+  dropDistance: number;
+  delay?: number;
 };
 
 const OLD_TREE = "/models/pond/old-tree.glb";
@@ -43,15 +61,11 @@ const groundClippedTreeMaterialCache = new WeakMap<
   THREE.Material
 >();
 
-// Start every transfer early, but keep it behind a local Suspense boundary so
-// a large asset cannot blank the water scene while its GLB streams in.
-useGLTF.preload(OLD_TREE);
-useGLTF.preload(MOSSY_LOG);
-useGLTF.preload(MOSSY_LOG_LOD);
-useGLTF.preload(CATTAIL);
-useGLTF.preload(PARK_BENCH);
-useGLTF.preload(WATER_LILY);
-useGLTF.preload(RIVER_ROCK);
+// Do not `preload` every GLB here. This module is imported with the scene, so
+// module-level preloads made the browser start roughly 6 MB of models,
+// textures, and HDR-adjacent work at the same time as the lead duck. The pond
+// now asks for one visual tier at a time below: water + duck first, then the
+// mature tree, hero log, bloom, and finally the supporting bank dressing.
 
 type RockPlacement = {
   position: [number, number, number];
@@ -235,6 +249,96 @@ function makeGroundClippedTreeMaterial(source: THREE.Material) {
   return material;
 }
 
+function arrivalSeed(position: [number, number, number]) {
+  const value = Math.sin(position[0] * 12.9898 + position[2] * 78.233) * 43758.5453;
+  return value - Math.floor(value);
+}
+
+/**
+ * New props never appear at their final transform. They take a small,
+ * deterministic gravity drop and settle once, so the staged loader feels
+ * like the pond is assembling rather than revealing a succession of pop-ins.
+ */
+function AssetEntrance({
+  children,
+  position = [0, 0, 0],
+  rotation = [0, 0, 0],
+  scale = 1,
+  dropDistance,
+  delay = 0,
+}: AssetEntranceProps) {
+  const groupRef = useRef<THREE.Group>(null);
+  const startedAtRef = useRef<number | null>(null);
+  const settledRef = useRef(false);
+  const reducedMotion = useMemo(
+    () =>
+      typeof window !== "undefined" &&
+      window.matchMedia("(prefers-reduced-motion: reduce)").matches,
+    [],
+  );
+  const targetScale = useMemo<[number, number, number]>(
+    () => (Array.isArray(scale) ? scale : [scale, scale, scale]),
+    [scale],
+  );
+  const initialScale = useMemo<[number, number, number]>(
+    () =>
+      reducedMotion
+        ? targetScale
+        : [targetScale[0] * 0.91, targetScale[1] * 0.91, targetScale[2] * 0.91],
+    [reducedMotion, targetScale],
+  );
+  const initialPosition = useMemo<[number, number, number]>(
+    () =>
+      reducedMotion
+        ? position
+        : [position[0], position[1] + dropDistance, position[2]],
+    [dropDistance, position, reducedMotion],
+  );
+
+  useFrame((state) => {
+    const group = groupRef.current;
+    if (!group || reducedMotion || settledRef.current) return;
+
+    const startedAt = startedAtRef.current ?? state.clock.elapsedTime;
+    startedAtRef.current = startedAt;
+    const elapsed = Math.max(0, state.clock.elapsedTime - startedAt - delay);
+    const progress = Math.min(1, elapsed / 0.78);
+
+    // A lightly underdamped settling curve: one small, soft landing bounce,
+    // never a cartoon spring or a per-frame React update.
+    const settled =
+      progress >= 1
+        ? 1
+        : 1 -
+          Math.exp(-6.2 * progress) *
+            (Math.cos(13.5 * progress) + 0.28 * Math.sin(13.5 * progress));
+    const scaleFactor = 0.91 + settled * 0.09;
+
+    group.position.set(
+      position[0],
+      position[1] + (1 - settled) * dropDistance,
+      position[2],
+    );
+    group.scale.set(
+      targetScale[0] * scaleFactor,
+      targetScale[1] * scaleFactor,
+      targetScale[2] * scaleFactor,
+    );
+    if (progress >= 1) settledRef.current = true;
+  });
+
+  return (
+    <group
+      ref={groupRef}
+      position={initialPosition}
+      rotation={rotation}
+      scale={initialScale}
+    >
+      {children}
+    </group>
+  );
+}
+
 function PondAsset({
   src,
   position,
@@ -267,18 +371,34 @@ function PondAsset({
     return clone;
   }, [castShadow, scene, src]);
 
+  const seed = arrivalSeed(position);
+  const dropDistance =
+    src === OLD_TREE
+      ? 0.92
+      : src === WATER_LILY
+        ? 0.24
+        : src === CATTAIL
+          ? 0.34
+          : src === PARK_BENCH
+            ? 0.48
+            : 0.58;
+
   return (
-    <group position={position} rotation={rotation} scale={scale}>
+    <AssetEntrance
+      position={position}
+      rotation={rotation}
+      scale={scale}
+      dropDistance={dropDistance}
+      delay={seed * 0.18}
+    >
       <primitive object={instance} position={modelOffset} dispose={null} />
-    </group>
+    </AssetEntrance>
   );
 }
 
-function PondImportedAssetsLoaded() {
+function PondTrees() {
   return (
     <group>
-      <PondRiverRocks />
-
       {/* Three mature trees make a loose, deliberately uneven backdrop. Their
           open centre keeps the pond readable from the sandbox camera. */}
       <PondAsset
@@ -305,6 +425,13 @@ function PondImportedAssetsLoaded() {
         modelOffset={PLANTED_TREE_ROOT_OFFSET}
         castShadow
       />
+    </group>
+  );
+}
+
+function HeroLog() {
+  return (
+    <group>
 
       {/* The detailed hero log is enlarged so its bark can read at close range.
           The offset preserves the bank contact point as its scale changes. */}
@@ -316,6 +443,13 @@ function PondImportedAssetsLoaded() {
         modelOffset={[-0.245, -0.053, -1.884]}
         castShadow
       />
+    </group>
+  );
+}
+
+function SupportingLogs() {
+  return (
+    <group>
       {/* Larger 2.2k-triangle log LODs extend the bank without spending hero
           detail in every water reflection capture. */}
       <PondAsset
@@ -342,7 +476,13 @@ function PondImportedAssetsLoaded() {
         scale={1.5}
         modelOffset={[-0.245, -0.053, -1.884]}
       />
+    </group>
+  );
+}
 
+function CattailClumps() {
+  return (
+    <group>
       {/* The repeated asset is cached, but the small rotations/scales prevent
           the bank from reading like a copied prop strip. */}
       <PondAsset
@@ -375,6 +515,17 @@ function PondImportedAssetsLoaded() {
         rotation={[0, 0.94, 0]}
         scale={1.36}
       />
+    </group>
+  );
+}
+
+function SupportingBankAssets() {
+  return (
+    <group>
+      <AssetEntrance dropDistance={0.26} delay={0.08}>
+        <PondRiverRocks />
+      </AssetEntrance>
+      <CattailClumps />
 
       <PondAsset
         src={PARK_BENCH}
@@ -397,7 +548,13 @@ function PondImportedAssetsLoaded() {
         scale={0.0075}
         castShadow
       />
+    </group>
+  );
+}
 
+function WaterLily() {
+  return (
+    <group>
       {/* One oversized, near-camera bloom is the fever-dream accent. Its native
           pad grounds it in the water without reintroducing a second flora style. */}
       <PondAsset
@@ -410,10 +567,128 @@ function PondImportedAssetsLoaded() {
   );
 }
 
-export function PondImportedAssets() {
+type AssetStageProps = {
+  src: string;
+  onReady: () => void;
+  children: ReactNode;
+};
+
+/**
+ * A one-resource Suspense gate. Descendants mount only after this source has
+ * settled, so tiered scenery cannot turn into a single competing request wave.
+ */
+function AssetStage({ src, onReady, children }: AssetStageProps) {
+  const { scene } = useGLTF(src);
+
+  useEffect(() => {
+    onReady();
+  }, [onReady, scene]);
+
+  return <>{children}</>;
+}
+
+type PondImportedAssetsProps = {
+  onComplete?: () => void;
+  /**
+   * Keep genuinely constrained devices readable without downloading desktop-
+   * only hero art. Current phones still receive the complete visual world in
+   * the calm staged sequence below.
+   */
+  lowPower?: boolean;
+};
+
+/**
+ * Procedural water, shore, and the lead duck render first. Decorative GLBs
+ * then arrive as an intentional sequence: tree → hero log → bloom → supporting
+ * logs → remaining small shoreline props. Desktop retains the complete scene;
+ * first-time visitors avoid a 6 MB asset/parse surge at first paint, while
+ * constrained devices use the compact tier below.
+ */
+export function PondImportedAssets({
+  lowPower = false,
+  onComplete,
+}: PondImportedAssetsProps) {
+  const [stage, setStage] = useState(0);
+  const completeOnceRef = useRef(false);
+
+  useEffect(() => {
+    // PondImportedAssets itself only mounts after the HDRI's Suspense gate.
+    // Starting this first GLB right on mount is therefore already strictly
+    // ordered after duck → water → HDRI, without introducing a visible gap.
+    // The next task lets React finish committing the resolved HDR environment
+    // before it begins parsing the first decorative model.
+    const start = window.setTimeout(() => setStage(1), 0);
+    return () => window.clearTimeout(start);
+  }, []);
+
+  const advanceTo = useCallback((nextStage: number) => {
+    setStage((currentStage) => Math.max(currentStage, nextStage));
+  }, []);
+
+  const complete = useCallback(() => {
+    if (completeOnceRef.current) return;
+    completeOnceRef.current = true;
+    onComplete?.();
+  }, [onComplete]);
+
+  if (lowPower) {
+    return (
+      <group>
+        {stage >= 1 ? (
+          <Suspense fallback={null}>
+            <AssetStage src={MOSSY_LOG_LOD} onReady={() => advanceTo(2)}>
+              <SupportingLogs />
+            </AssetStage>
+          </Suspense>
+        ) : null}
+        {stage >= 2 ? (
+          <Suspense fallback={null}>
+            <AssetStage src={CATTAIL} onReady={complete}>
+              <CattailClumps />
+            </AssetStage>
+          </Suspense>
+        ) : null}
+      </group>
+    );
+  }
+
   return (
-    <Suspense fallback={null}>
-      <PondImportedAssetsLoaded />
-    </Suspense>
+    <group>
+      {stage >= 1 ? (
+        <Suspense fallback={null}>
+          <AssetStage src={OLD_TREE} onReady={() => advanceTo(2)}>
+            <PondTrees />
+          </AssetStage>
+        </Suspense>
+      ) : null}
+      {stage >= 2 ? (
+        <Suspense fallback={null}>
+          <AssetStage src={MOSSY_LOG} onReady={() => advanceTo(3)}>
+            <HeroLog />
+          </AssetStage>
+        </Suspense>
+      ) : null}
+      {stage >= 3 ? (
+        <Suspense fallback={null}>
+          <AssetStage src={WATER_LILY} onReady={() => advanceTo(4)}>
+            <WaterLily />
+          </AssetStage>
+        </Suspense>
+      ) : null}
+      {stage >= 4 ? (
+        <Suspense fallback={null}>
+          <AssetStage src={MOSSY_LOG_LOD} onReady={() => advanceTo(5)}>
+            <SupportingLogs />
+          </AssetStage>
+        </Suspense>
+      ) : null}
+      {stage >= 5 ? (
+        <Suspense fallback={null}>
+          <AssetStage src={CATTAIL} onReady={complete}>
+            <SupportingBankAssets />
+          </AssetStage>
+        </Suspense>
+      ) : null}
+    </group>
   );
 }

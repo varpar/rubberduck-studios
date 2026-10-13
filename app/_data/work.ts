@@ -6,7 +6,8 @@
 export type ProjectVisual = {
   src: string;
   alt: string;
-  format: "wide" | "portrait";
+  width: number;
+  height: number;
 };
 
 export type FeaturedProject = {
@@ -14,8 +15,10 @@ export type FeaturedProject = {
   number: string;
   kind: string;
   title: string;
+  website: string;
   summary: string;
   details: string[];
+  logo: ProjectVisual;
   visual: ProjectVisual;
   caseStudy: {
     title: string;
@@ -57,13 +60,21 @@ export const work = {
       number: "01",
       kind: "Commerce system",
       title: "NutriPanda",
+      website: "https://nutripanda.in/",
       summary:
         "A wellness store and operating layer shaped around the same simple idea: make a small product range easier to understand, buy, and keep current.",
       details: ["Storefront", "Product detail", "Operations"],
+      logo: {
+        src: "/images/work/nutripanda/logo.png",
+        alt: "NutriPanda",
+        width: 2577,
+        height: 924,
+      },
       visual: {
-        src: "/images/work/nutripanda/product-detail.webp",
-        alt: "NutriPanda's Immunity Support Gummies product page, with product information, price, trust markers, and purchase controls.",
-        format: "wide",
+        src: "/images/work/nutripanda/home-live.jpg",
+        alt: "NutriPanda's live storefront, with bold green typography, its panda mascot, and a clear Shop Now action.",
+        width: 1280,
+        height: 720,
       },
       caseStudy: {
         title: "A commerce system designed around everyday decisions.",
@@ -115,9 +126,10 @@ export const work = {
             body:
               "The storefront gives each product a clear, comparable place in the range. Product names, visual cues, and prices can be scanned quickly, so a visitor is not forced to decode a catalogue before they can decide where to begin.",
             visual: {
-              src: "/images/work/nutripanda/discovery.webp",
-              alt: "NutriPanda storefront showing Daily Vitality and Immunity Support Gummies as clear product cards.",
-              format: "wide",
+              src: "/images/work/nutripanda/range-live.jpg",
+              alt: "NutriPanda's live product range showing Immunity Support and Skin Support Gummies with packaging, descriptions, and prices.",
+              width: 1280,
+              height: 720,
             },
           },
           {
@@ -126,9 +138,10 @@ export const work = {
             body:
               "The detail view is where attention becomes a considered action. It holds product context, ingredients, compliance cues, price, and purchase controls together so the page can answer practical questions without breaking the brand’s approachable tone.",
             visual: {
-              src: "/images/work/nutripanda/product-detail.webp",
-              alt: "NutriPanda product detail page for Immunity Support Gummies with description, ingredients, price, and compliance markers.",
-              format: "wide",
+              src: "/images/work/nutripanda/product-live.jpg",
+              alt: "NutriPanda's Immunity Support Gummies page with its image gallery, product description, price, quantity selector, and Add to Cart button.",
+              width: 1280,
+              height: 720,
             },
           },
           {
@@ -139,7 +152,8 @@ export const work = {
             visual: {
               src: "/images/work/nutripanda/operations.webp",
               alt: "NutriPanda administration screen for product pricing, stock, colour theme, and availability settings.",
-              format: "wide",
+              width: 1100,
+              height: 780,
             },
           },
         ],
@@ -150,13 +164,21 @@ export const work = {
       number: "02",
       kind: "Editorial experience",
       title: "Mi Amor Tales",
+      website: "https://www.miamortales.com/",
       summary:
         "An image-led wedding world where the first frame, individual stories, films, and enquiry all keep the same measured pace.",
       details: ["Editorial direction", "Story templates", "Responsive experience"],
+      logo: {
+        src: "/images/work/mi-amor-tales/logo.webp",
+        alt: "Mi Amor Tales",
+        width: 1311,
+        height: 405,
+      },
       visual: {
-        src: "/images/work/mi-amor-tales/home-hero.webp",
+        src: "/images/work/mi-amor-tales/home-live.jpg",
         alt: "Mi Amor Tales homepage introducing its wedding-photography world through a warm editorial hero image and navigation.",
-        format: "wide",
+        width: 1272,
+        height: 716,
       },
       caseStudy: {
         title: "A digital home that lets wedding stories breathe.",
@@ -208,9 +230,10 @@ export const work = {
             body:
               "The opening is paced like an arrival. Photography takes the lead, while the wordmark and navigation sit lightly in the frame. The result gives a visitor the atmosphere of the studio before asking them to make a choice about where to go next.",
             visual: {
-              src: "/images/work/mi-amor-tales/home-hero.webp",
+              src: "/images/work/mi-amor-tales/home-live.jpg",
               alt: "Mi Amor Tales homepage with a bride framed by ornate arches, editorial headline, and navigation.",
-              format: "wide",
+              width: 1272,
+              height: 716,
             },
           },
           {
@@ -219,9 +242,10 @@ export const work = {
             body:
               "The design uses image scale, generous negative space, and quiet typography to create a sequence rather than a collection of tiles. That system gives featured stories a repeatable structure without making each wedding feel like a template.",
             visual: {
-              src: "/images/work/mi-amor-tales/editorial-system.webp",
+              src: "/images/work/mi-amor-tales/editorial-live.jpg",
               alt: "Mi Amor Tales editorial homepage section with black-and-white wedding imagery, large typography, and a quiet grid.",
-              format: "wide",
+              width: 1272,
+              height: 716,
             },
           },
           {
@@ -230,9 +254,10 @@ export const work = {
             body:
               "Film is framed as part of the story world. A focused poster image and a single clear play action make the invitation legible while allowing the surrounding page to keep its editorial restraint.",
             visual: {
-              src: "/images/work/mi-amor-tales/film-story.webp",
+              src: "/images/work/mi-amor-tales/film-live.jpg",
               alt: "Mi Amor Tales film story page for Mohit and Riya with a video play control and editorial framing.",
-              format: "wide",
+              width: 1272,
+              height: 716,
             },
           },
         ],

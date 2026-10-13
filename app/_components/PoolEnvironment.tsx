@@ -879,8 +879,18 @@ function FallenLogs() {
   );
 }
 
+type PondEnvironmentProps = {
+  /** Fires after the last deferred decorative GLB tier has settled. */
+  onImportedAssetsReady?: () => void;
+  /** Genuinely constrained devices use procedural silhouettes first. */
+  lowPower?: boolean;
+};
+
 /** A staged, low-draw-call pond landscape that remains readable in the sandbox. */
-export function PondEnvironment() {
+export function PondEnvironment({
+  onImportedAssetsReady,
+  lowPower = false,
+}: PondEnvironmentProps) {
   const { terrain, grassGeometry, grassMaterial } = useMemo(() => {
     const terrain = createTerrainTexture();
     return {
@@ -913,7 +923,13 @@ export function PondEnvironment() {
       <PondBasin />
       <PondLilyPads />
       <PondBankFoliage />
-      <PondImportedAssets />
+      {/* The procedural tree line keeps the mobile silhouette lush without
+          asking a phone to download + decode the 2.3 MB desktop tree GLB. */}
+      {lowPower ? <DenseTreeLine /> : null}
+      <PondImportedAssets
+        lowPower={lowPower}
+        onComplete={onImportedAssetsReady}
+      />
       <PondBackdrop />
     </group>
   );

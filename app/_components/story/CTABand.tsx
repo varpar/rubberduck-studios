@@ -20,17 +20,17 @@ export function CTABand({
 }) {
   return (
     <div className="rd-route-copy mx-auto flex max-w-xl flex-col items-center gap-6 text-center">
-      <h2 className="text-balance font-heading text-4xl leading-[0.9] font-semibold tracking-[-0.055em] text-white sm:text-6xl">
+      <h2 className="text-balance font-heading text-4xl leading-[1.04] font-semibold tracking-[-0.055em] text-white sm:text-6xl">
         {typeof headline === "string" ? (
           <BlurInText text={headline} trigger="inview" />
         ) : (
           headline
         )}
       </h2>
-      {sub && <p className="max-w-xl text-lg leading-relaxed text-white/74">{sub}</p>}
+      {sub && <p className="max-w-xl text-lg leading-relaxed text-[var(--rd-text-body)]">{sub}</p>}
       <ActionButton href={mailto}>{cta}</ActionButton>
       {availability && (
-        <span className="flex items-center gap-2 text-sm text-white/74">
+        <span className="flex items-center gap-2 text-sm text-[var(--rd-text-body)]">
           <span className="h-2 w-2 rounded-full bg-[#facc15]" />
           {availability}
         </span>

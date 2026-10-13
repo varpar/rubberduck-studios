@@ -1,71 +1,121 @@
 # Water rendering architecture
 
-The site uses a physically informed hybrid water renderer. It aims for the
-visual cues people read as real water without requiring the multi-pass fluid
-simulation and ray tracing used by a desktop-only demo.
-
-## Where to use it
-
-- Keep one water scene behind the landing page and camera-dive transitions.
-- Reuse that canvas while page content changes; do not mount a separate water
-  renderer for each route.
-- Use the full underwater treatment only after the camera crosses the surface.
-  Caustics and light shafts are hidden on the home view and therefore cost no
-  draw calls there.
-- For small decorative water elements elsewhere, use a static image or a
-  normal-mapped plane instead of another refraction capture.
+The site keeps one React Three Fiber canvas behind the landing page and camera
+dive transitions. The water uses analytic waves and a custom shader; it does
+not run a height-field simulation or ray tracer.
 
 ## Rendering model
 
-The water surface combines:
+`StylizedWater.tsx` combines three directional waves, duck hull displacement,
+speed-dependent wakes, Fresnel reflectance, absorption, depth coloring, and an
+underwater Snell-window approximation. Four shared interaction slots carry duck
+positions and motion into shader uniforms without React updates. The full
+water path also retains four recent wake impulses per duck.
 
-- three analytic directional waves for the large silhouette;
-- a tiled normal map for small ripples;
-- one reduced-resolution scene capture for screen-space refraction;
-- Schlick Fresnel reflectance with water's approximate F0 of 0.020;
-- Beer-Lambert-style absorption and depth coloring;
-- a procedural sky reflection;
-- an underwater Snell window and total-internal-reflection approximation;
-- fog, caustics, light shafts, and real shadow-casting scene lights underwater.
+Reflections in the water are a **procedural sky and sun**, not a planar mirror
+of the surrounding models. The separate scene capture provides screen-space
+**refraction**, so off-camera objects cannot appear through the water. The HDR
+environment supplies lighting and reflections to the scene's compatible
+materials; it is not sampled by the custom water shader. These are retained
+limitations, not new optimizations.
 
-Each duck writes its position, radius, and velocity to a shared four-slot
-interaction buffer. The vertex shader adds a hull depression, damped rings,
-and a speed-dependent Kelvin-like V wake. This keeps interaction deterministic
-and avoids float textures, readbacks, or a GPU simulation pass.
+Caustics and light shafts provide underwater lighting cues. Both are hidden
+on the home view. Coarse-pointer or hardware-constrained devices use static
+procedural caustics; other devices sample the shared water normal texture.
 
-## Device tiers
+## Current water settings
 
-| Setting | Higher-power devices | Phones / low-power devices |
+| Setting | Full water path | Optical fallback |
 | --- | --- | --- |
-| Canvas DPR | Up to 1.5 | 1.0 |
-| Water grid | 160 x 160 | 96 x 96 |
-| Refraction scale | 0.50, capped at 768 px | 0.32, capped at 448 px |
-| Refraction cadence | Adaptive, every 1-3 frames | Adaptive, every 3-4 frames |
-| Normal-map samples | 2 | 1 |
-| Render-target format | RGBA8 | RGBA8 |
-| MSAA on capture | Off | Off |
+| Grid cells | 52 × 33 | 26 × 17 |
+| Grid vertices | 1,802 | 486 |
+| Original world-space spacing | 0.5 units | 80 / 72 units |
+| Normal detail | Two tiled normal-map samples | Procedural detail waves; no normal-map download |
+| Refraction capture | CSS dimensions × min(canvas DPR, 1.5), each dimension capped at 2,048 px; minimum 192 × 128 | None |
+| Capture cadence | Initially every 2 frames; adaptive every 1–3 frames | None |
+| Capture storage | RGBA8, sRGB texture, depth buffer, linear filtering; no MSAA, mipmaps, or stencil | None |
+| Historical wake rings | Enabled | Omitted; hull and motion wakes remain |
 
-The runtime chooses the lower tier for coarse pointers, four-or-fewer logical
-cores, 4 GB-or-less reported device memory, and software renderers. Capture
-cadence then adapts to measured frame rate.
+`Water.tsx` selects the optical fallback for a coarse pointer, at most four
+logical cores, at most 4 GB of reported device memory, or a detected software
+renderer. Missing hardware values default to eight. Every 1.5 seconds of
+sampled frame time, full-path capture cadence becomes every third frame below
+48 FPS, every frame above 58 FPS, or every second frame otherwise.
 
-## Why not the full WebGL water demo
+Scene quality is selected separately in `DuckScene.tsx`:
 
-Evan Wallace's original demo uses a floating-point height field, raytraced
-reflection/refraction, and a caustic texture pass. The Three.js GPGPU example
-also updates a floating-point height map. Those techniques are excellent for a
-standalone water showcase, but they add several full-screen/scene passes and
-have more mobile texture-format and filtering constraints.
+- Canvas DPR is capped at 2, or 1.5 for the compact asset tier. That compact
+  tier depends on core count or reported memory, not touch input alone.
+- Modern touch devices retain the full imported scenery and HDR environment.
+  The compact tier uses procedural trees and selected supporting models,
+  without the HDR environment.
+- Coarse-pointer or hardware-constrained devices disable canvas antialiasing,
+  scene shadows, and light shafts. Otherwise the sun uses a 1,024 × 1,024 PCF
+  shadow map. Software-renderer detection applies to water independently.
+- Output is sRGB with ACES filmic tone mapping and exposure 1.08.
 
-This implementation spends one reduced-resolution scene render for refraction
-and synthesizes the remaining cues in the surface shader. The main limitation
-is inherent to screen-space refraction: objects outside the current scene
-capture cannot appear through the water. That is acceptable for the bounded
-duck scene and is the key compromise that keeps the effect viable on phones.
+## Optimizations that retain visible detail
+
+`pondWaterGeometry.ts` crops the original 80 × 80 plane to conservative pond
+bounds plus a guard cell. It keeps the original grid spacing, alignment, and
+triangle layout; the shader still clips the exact irregular shoreline. The
+desktop vertex count falls from 25,921 to 1,802 (93.05%), and the fallback count
+from 5,329 to 486 (90.88%). These percentages describe water vertex work, not
+overall page performance. Desktop lattice positions were verified unchanged;
+10,000 sampled shoreline positions remain inside both cropped grids.
+
+`WaterSurface` owns the final render callback at priority 1, after animation
+updates. It updates scene matrices once and requests one current-frame shadow
+map. A refraction capture, when needed, and the main render share those matrices
+and shadows. R3F's automatic main render is replaced, so there is no extra
+third scene render. The target's normal automatic clear also replaces a
+redundant explicit clear.
+
+At an above-water camera height of at least 7.5, with the submerged blend below
+0.02, the shader gives captured refraction zero weight. The renderer skips only
+that unused capture; water waves and procedural reflections continue. Leaving
+this endpoint forces a fresh capture. The same render-target object survives
+resizes, preserving the water material and geometry; resizing or initial
+allocation also marks its contents stale.
+
+## Loading and resource lifetime
+
+`PondBackdrop.tsx` lets the initial page paint before requesting the scene
+bundle, using two animation frames and a bounded idle callback. It defers first
+boot while the document is hidden and preserves the mounted canvas across
+navigation.
+
+Once the scene starts, the water texture, duck model, and enabled HDR environment
+can fetch concurrently. Their visual reveal remains ordered: water, HDR
+lighting, duck family, then scenery. Decorative assets load in stages: trees,
+hero log, water lily, supporting logs, and the remaining bank props. The compact
+tier loads its smaller supporting sequence. Asset entrances stop updating their
+transforms after settling.
+
+The GLTF loader caches source geometry, textures, and materials. Scene instances
+reuse those resources; duck instances clone and later dispose only their own
+animated materials. Duck animation iterates a cached material list instead of
+traversing model graphs every frame. Locally owned water geometry, materials,
+neutral textures, and render targets are disposed on teardown.
+
+## Visibility and animation time
+
+The main canvas uses `frameloop="never"` while the document is hidden and returns
+to `"always"` when visible. It is not destroyed between these states. Installed
+R3F resets `clock.elapsedTime` whenever frameloop mode changes, so `SceneClock`
+runs before other frame subscribers and restores accumulated animation time.
+This prevents unfinished entrances from restarting and wake timestamps from
+rewinding after a tab switch.
+
+Water time and duck wake emission use that same clock. Loading the normal texture
+late therefore cannot create negative wake ages by starting a separate water
+timer. Reduced-motion preferences disable the water's time animation and the
+existing decorative motion paths. Visibility pausing is not a reduced-motion
+quality tier and does not change assets or capture resolution.
 
 ## References
 
+- [React Three Fiber: scaling performance](https://r3f.docs.pmnd.rs/advanced/scaling-performance)
+- [Three.js WebGLRenderer](https://threejs.org/docs/pages/WebGLRenderer.html)
 - [Three.js GPGPU water example](https://threejs.org/examples/webgl_gpgpu_water.html)
-- [Three.js Water helper](https://github.com/mrdoob/three.js/blob/dev/examples/jsm/objects/Water.js)
 - [Evan Wallace WebGL Water](https://github.com/evanw/webgl-water)
-- [Three.js port and mobile notes](https://github.com/jeantimex/threejs-water)

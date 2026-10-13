@@ -15,6 +15,7 @@ import {
   waterInteractors,
 } from "../_state/waterInteraction";
 import { POND_BOUNDARY_HARMONICS, POND_DIMENSIONS } from "../_state/pool";
+import { createPondWaterGeometry } from "./pondWaterGeometry";
 
 const SUN_DIRECTION = new THREE.Vector3(0.55, 0.82, 0.36).normalize();
 const INTERACTOR_COUNT = 4;
@@ -61,6 +62,7 @@ const VERTEX_SHADER = /* glsl */ `
 
     for (int i = 0; i < ${INTERACTOR_COUNT}; i++) {
       vec4 source = uInteractorPosition[i];
+      if (source.w <= 0.0) continue;
       vec4 motion = uInteractorMotion[i];
       // Plane local +Y becomes world -Z after the mesh rotation.
       vec2 sourcePosition = vec2(source.x, -source.y);
@@ -111,6 +113,10 @@ const VERTEX_SHADER = /* glsl */ `
 
     // Four impulses per duck retain a short, expanding memory of its route.
     // This is an inexpensive approximation of wake propagation in world space.
+    // On the mobile material, direct hull and divergent waves are enough for a
+    // readable wake; avoiding the historical rings saves three 16-item loops
+    // per vertex without making a moving duck look disconnected from the pond.
+    #ifndef LOW_POWER_WATER
     for (int i = 0; i < ${WAKE_IMPULSE_COUNT}; i++) {
       vec4 impulse = uWakeImpulse[i];
       float age = uTime - impulse.z;
@@ -124,6 +130,7 @@ const VERTEX_SHADER = /* glsl */ `
         h += sin((d - ringRadius) * 7.0) * envelope * impulse.w * 0.012;
       }
     }
+    #endif
 
     return h;
   }
@@ -198,6 +205,16 @@ const FRAGMENT_SHADER = /* glsl */ `
   }
 
   vec3 surfaceNormal() {
+    #ifdef LOW_POWER_WATER
+      // A cheap, world-space detail wave replaces the normal-map fetches on
+      // touch devices. It is intentionally calm, but preserves moving glints
+      // and a layered surface instead of degrading to a flat cyan fill.
+      vec2 detail = vec2(
+        sin(vWorldPosition.x * 1.61 + vWorldPosition.z * 0.78 + uTime * 0.045),
+        cos(vWorldPosition.z * 1.37 - vWorldPosition.x * 0.61 + uTime * 0.036)
+      ) * 0.028;
+      return normalize(vWorldNormal + vec3(detail.x, 0.065, detail.y));
+    #else
     vec2 uv0 = vWorldPosition.xz * 0.105 + vec2(uTime * 0.003, uTime * 0.002);
     vec2 uv1 = vec2(-vWorldPosition.z, vWorldPosition.x) * 0.071
       + vec2(-uTime * 0.002, uTime * 0.003);
@@ -208,6 +225,7 @@ const FRAGMENT_SHADER = /* glsl */ `
       detail = (sample0.xy + sample1.yx) * 0.095;
     }
     return normalize(vWorldNormal + vec3(detail.x, 0.10, detail.y));
+    #endif
   }
 
   vec2 refractedUv(vec3 normal, float amount) {
@@ -249,11 +267,29 @@ ${POND_BOUNDARY_GLSL}
     // the basin reads as water rather than exposing its construction rings.
     float overhead = smoothstep(2.0, 7.5, cameraPosition.y);
     float bedVeil = mix(0.5, 1.0, overhead);
-    vec3 sceneColor = mix(
-      texture2D(uSceneMap, refractedUv(normal, 0.018)).rgb,
-      scattering,
-      bedVeil
-    );
+    #ifdef LOW_POWER_WATER
+      // This is a deliberately single-pass phone optic: an art-directed blend
+      // of shallow water and sky, rather than a second render of the complete
+      // scene for true screen-space refraction. Duck tops still sit above the
+      // surface depth-wise, while the water keeps the same bright, reflective
+      // summer character as desktop.
+      vec3 sceneColor = mix(
+        uDeepColor * 0.84,
+        scattering,
+        clamp(0.42 + facing * 0.38 + shore * 0.24, 0.0, 1.0)
+      );
+      sceneColor = mix(
+        sceneColor,
+        skyReflection(reflect(-viewDirection, normal)),
+        0.13 + facing * 0.11
+      );
+    #else
+      vec3 sceneColor = mix(
+        texture2D(uSceneMap, refractedUv(normal, 0.018)).rgb,
+        scattering,
+        bedVeil
+      );
+    #endif
     vec3 refracted = sceneColor * transmission + scattering * (1.0 - transmission);
     vec3 reflected = skyReflection(reflect(-viewDirection, normal));
     vec3 color = mix(refracted, reflected, fresnel);
@@ -282,12 +318,25 @@ ${POND_BOUNDARY_GLSL}
     // physical cone made most of the overhead surface reflective, hiding the
     // floating ducks when a reader was under water.
     float snellWindow = smoothstep(0.26, 0.52, cosIncident);
-    vec3 sceneColor = texture2D(uSceneMap, refractedUv(-normal, 0.027)).rgb;
-    vec3 refracted = mix(
-      uDeepColor * 0.78,
-      sceneColor,
-      0.58 + transmission * 0.42
-    );
+    #ifdef LOW_POWER_WATER
+      vec3 sceneColor = mix(
+        uDeepColor * 0.72,
+        uShallowColor,
+        clamp(0.36 + cosIncident * 0.42, 0.0, 1.0)
+      );
+      vec3 refracted = mix(
+        uDeepColor * 0.78,
+        sceneColor,
+        0.54 + transmission * 0.34
+      );
+    #else
+      vec3 sceneColor = texture2D(uSceneMap, refractedUv(-normal, 0.027)).rgb;
+      vec3 refracted = mix(
+        uDeepColor * 0.78,
+        sceneColor,
+        0.58 + transmission * 0.42
+      );
+    #endif
     vec3 tir = mix(
       uDeepColor * 0.65,
       skyReflection(reflect(-viewDirection, -normal)) * transmission,
@@ -340,22 +389,50 @@ export type WaterHandle = {
 };
 
 type StylizedWaterProps = {
-  sceneTexture: THREE.Texture;
+  sceneTexture: THREE.Texture | null;
   lowPower: boolean;
+  /** Lets the scene stage subsequent polish only after this material exists. */
+  onReady?: () => void;
 };
 
-export const StylizedWater = forwardRef<WaterHandle, StylizedWaterProps>(
-  function StylizedWater({ sceneTexture, lowPower }, ref) {
+type WaterMeshProps = StylizedWaterProps & {
+  normalMap: THREE.Texture | null;
+};
+
+const WaterMesh = forwardRef<WaterHandle, WaterMeshProps>(
+  function WaterMesh({ sceneTexture, lowPower, normalMap, onReady }, ref) {
     const meshRef = useRef<THREE.Mesh>(null);
     const materialRef = useRef<THREE.ShaderMaterial | null>(null);
-    const normalMap = useTexture("/textures/waternormals.jpg");
+    // The phone material uses world-space detail waves, so a 1px neutral map
+    // is sufficient for its inactive sampler uniform. This keeps the 249 KB
+    // desktop normal texture out of mobile's initial Suspense queue entirely.
+    const neutralTexture = useMemo(() => {
+      const texture = new THREE.DataTexture(
+        new Uint8Array([128, 128, 255, 255]),
+        1,
+        1,
+        THREE.RGBAFormat,
+      );
+      texture.colorSpace = THREE.NoColorSpace;
+      texture.needsUpdate = true;
+      return texture;
+    }, []);
+    const activeNormalMap = normalMap ?? neutralTexture;
 
     useEffect(() => {
+      if (!normalMap) return;
       normalMap.wrapS = normalMap.wrapT = THREE.RepeatWrapping;
       normalMap.colorSpace = THREE.NoColorSpace;
       normalMap.anisotropy = lowPower ? 1 : 4;
       normalMap.needsUpdate = true;
     }, [normalMap, lowPower]);
+
+    useEffect(
+      () => () => {
+        neutralTexture.dispose();
+      },
+      [neutralTexture],
+    );
 
     useImperativeHandle(ref, () => ({
       get mesh() {
@@ -367,8 +444,10 @@ export const StylizedWater = forwardRef<WaterHandle, StylizedWaterProps>(
     }));
 
     const { geometry, material } = useMemo(() => {
-      const segments = lowPower ? 96 : 160;
-      const geometry = new THREE.PlaneGeometry(80, 80, segments, segments);
+      // Preserve the existing vertex spacing, wave shape, and normals. The
+      // old 80 × 80 plane evaluated wakes far beyond the pond, only to discard
+      // those pixels later; this crops that invisible work at the same lattice.
+      const geometry = createPondWaterGeometry(lowPower);
       const uniforms = {
           fogDensity: { value: 0 },
           fogNear: { value: 1 },
@@ -378,8 +457,8 @@ export const StylizedWater = forwardRef<WaterHandle, StylizedWaterProps>(
           uSubmerged: { value: 0 },
           uLowPower: { value: lowPower ? 1 : 0 },
           uTextureMatrix: { value: new THREE.Matrix4() },
-          uSceneMap: { value: sceneTexture },
-          uNormalMap: { value: normalMap },
+          uSceneMap: { value: sceneTexture ?? neutralTexture },
+          uNormalMap: { value: activeNormalMap },
           uSunDirection: { value: SUN_DIRECTION.clone() },
           uDeepColor: { value: new THREE.Color("#23889a") },
           uShallowColor: { value: new THREE.Color("#69baa9") },
@@ -412,6 +491,7 @@ export const StylizedWater = forwardRef<WaterHandle, StylizedWaterProps>(
       const material = new THREE.ShaderMaterial({
         vertexShader: VERTEX_SHADER,
         fragmentShader: FRAGMENT_SHADER,
+        ...(lowPower ? { defines: { LOW_POWER_WATER: 1 } } : {}),
         uniforms,
         side: THREE.DoubleSide,
         depthWrite: true,
@@ -420,12 +500,12 @@ export const StylizedWater = forwardRef<WaterHandle, StylizedWaterProps>(
         fog: true,
       });
       return { geometry, material };
-    }, [lowPower, normalMap, sceneTexture]);
+    }, [activeNormalMap, lowPower, neutralTexture, sceneTexture]);
 
     useEffect(() => {
-      material.uniforms.uSceneMap.value = sceneTexture;
-      material.uniforms.uNormalMap.value = normalMap;
-    }, [material, normalMap, sceneTexture]);
+      material.uniforms.uSceneMap.value = sceneTexture ?? neutralTexture;
+      material.uniforms.uNormalMap.value = activeNormalMap;
+    }, [activeNormalMap, material, neutralTexture, sceneTexture]);
 
     useEffect(
       () => () => {
@@ -435,6 +515,12 @@ export const StylizedWater = forwardRef<WaterHandle, StylizedWaterProps>(
       [geometry, material],
     );
 
+    useEffect(() => {
+      // This executes only after the desktop normal map (or the mobile
+      // procedural branch) has resolved and the material is mounted.
+      onReady?.();
+    }, [material, onReady]);
+
     const reducedMotion = useMemo(
       () =>
         typeof window !== "undefined" &&
@@ -442,8 +528,11 @@ export const StylizedWater = forwardRef<WaterHandle, StylizedWaterProps>(
       [],
     );
 
-    useFrame((_, delta) => {
-      if (!reducedMotion) material.uniforms.uTime.value += delta;
+    useFrame((state) => {
+      // Wake timestamps come from the same clock in Duck.tsx. Starting a
+      // second timer after the normal map resolves made their ages negative
+      // during slow loads, hiding the first wakes entirely.
+      if (!reducedMotion) material.uniforms.uTime.value = state.clock.elapsedTime;
     });
 
     return (
@@ -456,6 +545,49 @@ export const StylizedWater = forwardRef<WaterHandle, StylizedWaterProps>(
       >
         <primitive ref={materialRef} object={material} attach="material" />
       </mesh>
+    );
+  },
+);
+
+const DesktopWater = forwardRef<WaterHandle, StylizedWaterProps>(
+  function DesktopWater({ sceneTexture, lowPower, onReady }, ref) {
+    const normalMap = useTexture("/textures/waternormals.jpg");
+    return (
+      <WaterMesh
+        ref={ref}
+        sceneTexture={sceneTexture}
+        lowPower={lowPower}
+        normalMap={normalMap}
+        onReady={onReady}
+      />
+    );
+  },
+);
+
+export const StylizedWater = forwardRef<WaterHandle, StylizedWaterProps>(
+  function StylizedWater({ sceneTexture, lowPower, onReady }, ref) {
+    // Keeping the loader in the desktop branch is intentional. Hooks remain
+    // unconditional within each component, while a phone never requests an
+    // asset that its single-pass material does not sample.
+    if (lowPower) {
+      return (
+        <WaterMesh
+          ref={ref}
+          sceneTexture={sceneTexture}
+          lowPower
+          normalMap={null}
+          onReady={onReady}
+        />
+      );
+    }
+
+    return (
+      <DesktopWater
+        ref={ref}
+        sceneTexture={sceneTexture}
+        lowPower={false}
+        onReady={onReady}
+      />
     );
   },
 );

@@ -16,7 +16,7 @@
   --color-background: var(--background);
   --color-foreground: var(--foreground);
   --font-sans: var(--font-geist-sans);
-  --font-mono: var(--font-geist-mono);
+  --font-mono: ui-monospace, SFMono-Regular, Menlo, monospace;
   --font-heading: var(--font-heading);
   --font-display: var(--font-display);
 }
@@ -114,22 +114,19 @@ body {
 }
 
 /* ---------------------------------------------------------------------------
- * Content-page (blue) design tokens + story-system helpers.
- * The rebuilt About/Work/Contact pages are vertical, blue, and read as a story.
- * Four blue "tones" cycle down each page so no two adjacent sections share a
- * background — and text stays readable without swapping the pond for a flat
- * white page. A dark teal glass layer gives white copy a reliable contrast
- * floor while the live scenery remains visible. Yellow stays a rationed signal
- * accent.
+ * Story text sits over the actual pond. Neutral shade improves contrast
+ * without adding a colored surface or changing the scene's palette.
  * ------------------------------------------------------------------------- */
 :root {
   --rd-sky: #4ec5f5; /* hero blue */
   --rd-ocean: #1f8fd0; /* mid */
   --rd-deep: #0a4f87; /* deep */
   --rd-ink: #f8fcff; /* editorial copy */
-  --rd-text-muted: rgb(248 252 255 / 0.74);
-  --rd-surface: rgb(3 33 51 / 0.64);
-  --rd-surface-strong: rgb(3 25 42 / 0.8);
+  --rd-text-body: #f0f0f0;
+  --rd-text-muted: #dedede;
+  --rd-reading-backdrop: rgb(0 0 0 / 0.65);
+  --rd-surface: rgb(0 0 0 / 0.28);
+  --rd-surface-strong: rgb(0 0 0 / 0.45);
   --rd-line: rgb(255 255 255 / 0.2);
   --rd-yellow: #facc15; /* signal accent (use sparingly) */
 }
@@ -146,31 +143,22 @@ body {
  * surface, navigation, and proof images remain spatially stable; only the
  * editorial copy gets a short dissolve. It gives a change of page a little
  * atmosphere without exposing it as a full-screen wipe. */
-.rd-route-shell[data-route-kind="story"] .rd-route-copy,
-.rd-overlay-story[data-page-phase] .rd-route-copy {
-  will-change: opacity, filter, transform;
-}
-
 .rd-route-shell[data-route-kind="story"][data-route-phase="leaving"] .rd-route-copy,
 .rd-overlay-story[data-page-phase="leaving"] .rd-route-copy {
   opacity: 0;
-  filter: blur(4px);
   transform: translateY(-4px);
   transition:
     opacity 140ms ease-in,
-    filter 140ms ease-in,
     transform 140ms ease-in;
 }
 
 @keyframes rd-copy-enter {
   from {
     opacity: 0;
-    filter: blur(5px);
     transform: translateY(7px);
   }
   to {
     opacity: 1;
-    filter: blur(0);
     transform: translateY(0);
   }
 }
@@ -198,54 +186,30 @@ body {
  * panels, so the page reads as a single place rather than stacked components. */
 .rd-story-shell {
   min-height: 100dvh;
-  background:
-    radial-gradient(70rem 38rem at 82% -12%, rgb(74 186 196 / 0.16), transparent 62%),
-    radial-gradient(46rem 32rem at 4% 78%, rgb(16 116 143 / 0.12), transparent 68%),
-    linear-gradient(180deg, #062c45 0%, #051f33 100%);
+  background: var(--rd-reading-backdrop);
 }
 
-/* Every shareable story URL lives over the same pond. These are deliberately
- * local contrast veils—not an opaque dark page or an expensive full-screen
- * blur—so the water and duck remain a visible part of the reading experience
- * without compromising white copy. */
+/* Every shareable story URL lives over the same pond. The reading surface
+ * below supplies contrast for both direct URLs and the home-page overlay. */
 .rd-pond-work-frame {
   position: relative;
   isolation: isolate;
   min-height: 100dvh;
 }
 
+/* Exactly one neutral scrim per reading view, including the top gutter.
+ * The home hero has no scrim; the pond remains sharp and keeps its own hues. */
+.rd-pond-work-frame,
+[data-story-open="true"] > .rd-overlay-story {
+  background: var(--rd-reading-backdrop);
+}
+
 .rd-pond-work-frame__content {
   min-height: 100dvh;
 }
 
-.rd-pond-work-frame .rd-story-section::before {
-  position: absolute;
-  z-index: 0;
-  inset: 0;
-  pointer-events: none;
-  content: "";
-  background:
-    linear-gradient(
-      90deg,
-      rgb(3 42 59 / 0.48) 0%,
-      rgb(3 42 59 / 0.28) 48%,
-      rgb(3 42 59 / 0.06) 78%,
-      transparent 100%
-    );
-}
-
 .rd-pond-work-frame .rd-story-section__inner {
   z-index: 1;
-}
-
-.rd-pond-work-frame .rd-story-section:nth-of-type(even) {
-  background: rgb(4 54 72 / 0.08);
-}
-
-@media (max-width: 639px) {
-  .rd-pond-work-frame .rd-story-section::before {
-    background: linear-gradient(180deg, rgb(3 42 59 / 0.46), rgb(3 42 59 / 0.18));
-  }
 }
 
 .rd-story {
@@ -260,11 +224,11 @@ body {
 .rd-story-section {
   position: relative;
   min-width: 0;
+  scroll-margin-top: 7rem;
 }
 
 .rd-story-section:nth-of-type(even) {
   border-block: 1px solid rgb(255 255 255 / 0.12);
-  background: rgb(255 255 255 / 0.026);
 }
 
 .rd-story-section__inner {
@@ -281,55 +245,120 @@ body {
   color: var(--rd-ink);
 }
 
-/* Project proof is contained by a quiet dark matte rather than a white frame.
- * A faint teal tint and reduced saturation let very bright product screens or
- * photography sit inside the same underwater world without obscuring them. */
+/* Original-colour proof images, with a separate readable caption matte. */
 .rd-media-stage {
   position: relative;
   isolation: isolate;
   overflow: hidden;
-  border: 1px solid rgb(222 249 255 / 0.18);
+  border: 1px solid rgb(222 249 255 / 0.28);
   border-radius: 1.25rem;
-  background: #041f31;
+  background: var(--rd-surface);
   box-shadow: 0 28px 80px -58px rgb(0 0 0 / 0.95);
 }
 
-.rd-media-stage__image {
-  transform: scale(1.006);
-  filter: saturate(0.82) contrast(0.95) brightness(0.92);
+.rd-media-stage__viewport {
+  position: relative;
 }
 
-.rd-media-stage__tint {
-  position: absolute;
-  z-index: 1;
-  inset: 0;
-  pointer-events: none;
-  background:
-    linear-gradient(180deg, rgb(6 49 66 / 0.05), rgb(3 28 43 / 0.34)),
-    linear-gradient(90deg, rgb(8 85 99 / 0.12), transparent 55%);
+.rd-media-stage__image {
+  object-position: center;
 }
 
 .rd-media-stage__caption {
-  position: absolute;
-  z-index: 2;
-  right: 1.25rem;
-  bottom: 1.15rem;
-  left: 1.25rem;
-  text-shadow: 0 1px 18px rgb(0 0 0 / 0.84);
-  font-size: 0.6875rem;
-  font-weight: 700;
-  line-height: 1.25;
-  letter-spacing: 0.18em;
-  color: rgb(255 255 255 / 0.88);
-  text-transform: uppercase;
+  border-top: 1px solid var(--rd-line);
+  padding: 1rem 1.25rem;
+  font-size: 0.75rem;
+  font-weight: 500;
+  line-height: 1.5;
+  letter-spacing: 0.02em;
+  color: var(--rd-text-muted);
 }
 
-.rd-case-study--nutripanda .rd-media-stage__caption {
-  color: #e2f4d2;
+.rd-project-cover {
+  display: grid;
+  aspect-ratio: 16 / 10;
+  place-items: center;
+  overflow: hidden;
+  border: 1px solid rgb(255 255 255 / 0.28);
+  border-radius: 1.25rem;
+  transition: border-color 180ms ease;
 }
 
-.rd-case-study--mi-amor-tales .rd-media-stage__caption {
-  color: #f2dfc1;
+.rd-project-cover--nutripanda {
+  background: #f5faef;
+}
+
+.rd-project-cover--mi-amor-tales {
+  background: #f6f3eb;
+}
+
+.rd-project-preview:hover .rd-project-cover {
+  border-color: var(--rd-yellow);
+}
+
+.rd-project-action {
+  display: inline-flex;
+  min-height: 3rem;
+  align-items: center;
+  justify-content: center;
+  gap: 0.625rem;
+  border: 1px solid rgb(222 249 255 / 0.52);
+  border-radius: 999px;
+  padding: 0.75rem 1.125rem;
+  color: var(--rd-ink);
+  font-size: 0.875rem;
+  font-weight: 600;
+  line-height: 1.4;
+  transition: background-color 180ms ease, border-color 180ms ease;
+}
+
+.rd-project-action:hover {
+  border-color: var(--rd-ink);
+  background: var(--rd-surface-strong);
+}
+
+.rd-project-action--case,
+.rd-case-study .rd-project-action--live {
+  border-color: var(--rd-yellow);
+  background: var(--rd-yellow);
+  color: #06263f;
+}
+
+.rd-project-action--case:hover,
+.rd-case-study .rd-project-action--live:hover {
+  border-color: #fde047;
+  background: #fde047;
+}
+
+.rd-case-study .rd-project-action--case {
+  border-color: rgb(222 249 255 / 0.52);
+  background: transparent;
+  color: var(--rd-ink);
+}
+
+.rd-project-action:focus-visible {
+  outline: 2px solid var(--rd-ink);
+  outline-offset: 4px;
+}
+
+.rd-next-project:hover {
+  text-decoration: underline;
+  text-underline-offset: 0.25em;
+}
+
+.rd-work-index > .rd-story-section:first-child .rd-story-section__inner {
+  padding-bottom: clamp(3rem, 7vw, 5rem);
+}
+
+.rd-work-index > .rd-story-section:nth-child(2) .rd-story-section__inner {
+  padding-top: clamp(3rem, 6vw, 4.5rem);
+}
+
+@media (prefers-reduced-motion: reduce) {
+  .rd-project-action,
+  .rd-project-preview .rd-media-stage {
+    transition: none;
+  }
 }
 
 @media (max-width: 639px) {
@@ -338,10 +367,7 @@ body {
   }
 
   .rd-media-stage__caption {
-    right: 1rem;
-    bottom: 0.9rem;
-    left: 1rem;
-    font-size: 0.625rem;
+    padding: 0.875rem 1rem;
   }
 }
 

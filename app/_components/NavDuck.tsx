@@ -13,10 +13,7 @@ import {
 } from "react";
 import * as THREE from "three";
 import { useContentVisible, useView } from "../_state/navigation";
-
-// Same asset as the hero family — drei caches by URL so this shares the
-// already-fetched GLB, no second download.
-useGLTF.preload("/models/duck.glb");
+import { useDocumentVisible, useReducedMotion } from "./sceneActivity";
 
 // px. The little duck's canvas is square; GAP is the breathing room between
 // it and the active nav label it sits to the left of.
@@ -25,7 +22,7 @@ const GAP = 12;
 
 // A single duck, centered in its own tiny canvas, turning slowly on its
 // vertical axis. This is the "you are here" marker once a page has loaded.
-function SpinningDuck() {
+function SpinningDuck({ reducedMotion }: { reducedMotion: boolean }) {
   const { scene } = useGLTF("/models/duck.glb");
   const ref = useRef<THREE.Group>(null);
 
@@ -53,13 +50,21 @@ function SpinningDuck() {
     return c;
   }, [scene]);
 
+  useEffect(() => () => {
+    cloned.traverse((object) => {
+      if (!(object instanceof THREE.Mesh)) return;
+      const materials = Array.isArray(object.material) ? object.material : [object.material];
+      for (const material of materials) material.dispose();
+    });
+  }, [cloned]);
+
   useFrame((_, delta) => {
-    if (ref.current) ref.current.rotation.y += delta * 0.9;
+    if (ref.current && !reducedMotion) ref.current.rotation.y += delta * 0.9;
   });
 
   return (
     <group ref={ref}>
-      <primitive object={cloned} />
+      <primitive object={cloned} dispose={null} />
     </group>
   );
 }
@@ -73,6 +78,8 @@ function SpinningDuck() {
 export function NavDuck() {
   const view = useView();
   const docked = useContentVisible() !== null;
+  const documentVisible = useDocumentVisible();
+  const reducedMotion = useReducedMotion();
   const wrapRef = useRef<HTMLDivElement>(null);
 
   // Hidden + off-screen before first paint so it never flashes at the corner
@@ -164,7 +171,8 @@ export function NavDuck() {
 
   return (
     <div ref={wrapRef} style={style} aria-hidden>
-      <Canvas
+      {view !== "home" ? <Canvas
+        frameloop={!documentVisible ? "never" : docked && !reducedMotion ? "always" : "demand"}
         camera={{ position: [0, 0.12, 3], fov: 30 }}
         gl={{ antialias: true, alpha: true }}
         dpr={[1, 2]}
@@ -173,9 +181,9 @@ export function NavDuck() {
         <directionalLight position={[3, 4, 3]} intensity={1.3} />
         <directionalLight position={[-3, 1, 2]} intensity={0.35} />
         <Suspense fallback={null}>
-          <SpinningDuck />
+          <SpinningDuck reducedMotion={reducedMotion} />
         </Suspense>
-      </Canvas>
+      </Canvas> : null}
     </div>
   );
 }

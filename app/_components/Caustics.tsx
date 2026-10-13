@@ -54,20 +54,26 @@ const FRAGMENT = /* glsl */ `
     vec2 c = vUv - 0.5;
     float falloff = smoothstep(0.6, 0.15, length(c));
 
-    vec2 uv0 = vUv * 5.5 + vec2(uTime * 0.07, uTime * 0.045);
-    vec2 n0 = texture2D(uNormalMap, uv0).rg;
-    // The constrained tier uses one texture read and a static pattern. Its
-    // feathered, lower-intensity result preserves an underwater light cue
-    // without another animated full-screen fragment pass on phones.
+    // The constrained tier is fully procedural and static. It retains a soft
+    // pool-light cue without loading the desktop normal texture or making a
+    // second animated texture pass compete with the water surface.
     #ifdef LOW_POWER_CAUSTICS
-      vec2 n1 = n0.yx;
+      float fieldA = sin(vUv.x * 27.0 + vUv.y * 9.0);
+      float fieldB = sin(vUv.y * 23.0 - vUv.x * 11.0 + 1.7);
+      float fieldC = cos((vUv.x + vUv.y) * 18.0 - 0.8);
+      float caustics = pow(
+        clamp((fieldA * fieldB + fieldC) * 0.35 + 0.48, 0.0, 1.0),
+        7.0
+      );
     #else
+      vec2 uv0 = vUv * 5.5 + vec2(uTime * 0.07, uTime * 0.045);
+      vec2 n0 = texture2D(uNormalMap, uv0).rg;
       vec2 uv1 = vUv * 7.3 + vec2(-uTime * 0.052, uTime * 0.063);
       vec2 n1 = texture2D(uNormalMap, uv1).bg;
+      float ridgeA = 1.0 - abs(n0.x - n1.x) * 3.0;
+      float ridgeB = 1.0 - abs(n0.y - n1.y) * 3.0;
+      float caustics = pow(clamp(ridgeA * ridgeB, 0.0, 1.0), 5.0);
     #endif
-    float ridgeA = 1.0 - abs(n0.x - n1.x) * 3.0;
-    float ridgeB = 1.0 - abs(n0.y - n1.y) * 3.0;
-    float caustics = pow(clamp(ridgeA * ridgeB, 0.0, 1.0), 5.0);
 
     // Moderate peak so it shimmers, not blinds.
     float brightness = caustics * falloff * uIntensity * 1.4;
@@ -80,15 +86,42 @@ type CausticsProps = {
   lowPower?: boolean;
 };
 
-export function Caustics({ lowPower = false }: CausticsProps) {
+type CausticLayerProps = {
+  lowPower: boolean;
+  normalMap: THREE.Texture | null;
+};
+
+function CausticLayer({ lowPower, normalMap }: CausticLayerProps) {
   const submerged = useView() !== "home";
-  const normalMap = useTexture("/textures/waternormals.jpg");
+  // The mobile shader's normal-map branch is compiled out. Retain a tiny
+  // neutral texture for its unused uniform, avoiding a network request and
+  // another Suspense dependency during a phone's first paint.
+  const neutralTexture = useMemo(() => {
+    const texture = new THREE.DataTexture(
+      new Uint8Array([128, 128, 255, 255]),
+      1,
+      1,
+      THREE.RGBAFormat,
+    );
+    texture.colorSpace = THREE.NoColorSpace;
+    texture.needsUpdate = true;
+    return texture;
+  }, []);
+  const activeNormalMap = normalMap ?? neutralTexture;
 
   useEffect(() => {
+    if (!normalMap) return;
     normalMap.wrapS = normalMap.wrapT = THREE.RepeatWrapping;
     normalMap.colorSpace = THREE.NoColorSpace;
     normalMap.needsUpdate = true;
   }, [normalMap]);
+
+  useEffect(
+    () => () => {
+      neutralTexture.dispose();
+    },
+    [neutralTexture],
+  );
 
   const reducedMotion = useMemo(
     () =>
@@ -116,7 +149,7 @@ export function Caustics({ lowPower = false }: CausticsProps) {
           uTime: { value: 0 },
           uIntensity: { value: 0 },
           uColor: { value: COLOR },
-          uNormalMap: { value: normalMap },
+          uNormalMap: { value: activeNormalMap },
         },
         transparent: true,
         depthWrite: false,
@@ -124,7 +157,7 @@ export function Caustics({ lowPower = false }: CausticsProps) {
         side: THREE.DoubleSide,
         toneMapped: false,
       }),
-    [lowPower, normalMap],
+    [activeNormalMap, lowPower],
   );
 
   // Dispose GPU resources on unmount / hot-reload so nothing leaks.
@@ -162,4 +195,20 @@ export function Caustics({ lowPower = false }: CausticsProps) {
       renderOrder={1}
     />
   );
+}
+
+function DesktopCaustics() {
+  const normalMap = useTexture("/textures/waternormals.jpg");
+  return <CausticLayer lowPower={false} normalMap={normalMap} />;
+}
+
+function MobileCaustics() {
+  return <CausticLayer lowPower normalMap={null} />;
+}
+
+export function Caustics({ lowPower = false }: CausticsProps) {
+  // Keep useTexture inside the desktop-only branch. A coarse-pointer device
+  // receives its visual cue immediately instead of blocking the pond behind a
+  // normal-map download it never samples.
+  return lowPower ? <MobileCaustics /> : <DesktopCaustics />;
 }

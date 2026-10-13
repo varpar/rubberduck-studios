@@ -23,6 +23,10 @@ const securityHeaders = [
 ];
 
 const nextConfig: NextConfig = {
+  images: {
+    // Interface screenshots need enough detail to keep small UI text crisp.
+    qualities: [75, 90],
+  },
   // A parent-level lockfile is unrelated to this app. Pinning Turbopack to
   // this directory avoids watching the broader Desktop workspace in dev.
   turbopack: {
@@ -43,6 +47,18 @@ const nextConfig: NextConfig = {
             : []),
         ],
       },
+      // These authored resources retain their full fidelity. A bounded
+      // browser cache avoids revalidating every model/texture on a revisit,
+      // without treating mutable public filenames as year-long immutable URLs.
+      ...["models", "hdr", "textures", "images", "fonts"].map((directory) => ({
+        source: `/${directory}/:path*`,
+        headers: [
+          {
+            key: "Cache-Control",
+            value: "public, max-age=3600, stale-while-revalidate=86400",
+          },
+        ],
+      })),
     ];
   },
 };

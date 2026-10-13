@@ -55,14 +55,14 @@ const MOBILE_MENU_ITEMS: ReadonlyArray<{
 const HOME_POSITIONS: Record<PageView, CSSProperties> = {
   projects: {
     top: "auto",
-    bottom: "clamp(9.5rem, 15vw, 13.5rem)",
+    bottom: "calc(clamp(2.25rem, 5vw, 4.5rem) + clamp(2.65rem, 5vw, 5rem) + clamp(2.65rem, 5vw, 5rem) + 2.5rem)",
     right: "clamp(1.25rem, 3.5vw, 3.5rem)",
     left: "auto",
     transform: "translate(0, 0)",
   },
   about: {
     top: "auto",
-    bottom: "clamp(5.8rem, 10vw, 9rem)",
+    bottom: "calc(clamp(2.25rem, 5vw, 4.5rem) + clamp(2.65rem, 5vw, 5rem) + 1.25rem)",
     right: "clamp(1.25rem, 3.5vw, 3.5rem)",
     left: "auto",
     transform: "translate(0, 0)",
@@ -80,21 +80,21 @@ const PAGE_POSITIONS: Record<PageView, CSSProperties> = {
   projects: {
     top: "2rem",
     bottom: "auto",
-    left: "35%",
+    left: "55%",
     right: "auto",
     transform: "translate(-50%, 0)",
   },
   about: {
     top: "2rem",
     bottom: "auto",
-    left: "50%",
+    left: "71%",
     right: "auto",
     transform: "translate(-50%, 0)",
   },
   contact: {
     top: "2rem",
     bottom: "auto",
-    left: "65%",
+    left: "87%",
     right: "auto",
     transform: "translate(-50%, 0)",
   },
@@ -198,8 +198,8 @@ export function Nav({
 
     const reduce = window.matchMedia("(prefers-reduced-motion: reduce)").matches;
 
-    if (prev && !reduce) {
-      Flip.from(prev, {
+    const animation = prev && !reduce
+      ? Flip.from(prev, {
         targets,
         duration: 0.75,
         ease: "power3.inOut",
@@ -207,9 +207,10 @@ export function Nav({
         // zoom, so each heading shrinks as it flies up into the navbar.
         scale: true,
         stagger: 0.06,
-      });
-    }
+      })
+      : null;
     flipStateRef.current = current;
+    return () => { animation?.kill(); };
   }, [view]);
 
   useEffect(() => {
@@ -323,6 +324,7 @@ export function Nav({
                   btnRefs.current[v] = el;
                 }}
                 href={HREFS[v]}
+                prefetch={routeMode ? undefined : false}
                 data-nav-item={v}
                 onMouseEnter={() => nav.setHover(v)}
                 onMouseLeave={() => nav.setHover(null)}
@@ -352,7 +354,7 @@ export function Nav({
                 }}
                 aria-current={active ? "page" : undefined}
                 className={
-                  "relative tracking-tight " +
+                  "relative inline-flex min-h-11 items-center rounded-xl px-3 py-1.5 tracking-tight [text-shadow:0_1px_3px_rgba(0,0,0,0.75),0_2px_12px_rgba(0,0,0,0.3)] outline-none focus-visible:ring-2 focus-visible:ring-[#facc15] focus-visible:ring-offset-2 focus-visible:ring-offset-transparent " +
                   // Only color transitions here — Flip (in the layout effect)
                   // owns the position/size travel, so `transition-all` would
                   // fight it. Colors still ease on hover/active.
@@ -360,19 +362,17 @@ export function Nav({
                   // Both states share the tall display face so the home→navbar
                   // move is a pure scale+glide, not a font swap mid-flight.
                   // Anton is a single heavy weight — no bold class needed.
-                  "font-display " +
+                  "font-display leading-none " +
                   (isHome
                     ? "text-[clamp(2.65rem,5vw,5rem)] "
                     : "text-2xl sm:text-3xl ") +
-                  // The nav stays white both over the water hero and the
-                  // darkened glass story layer, so it reads as one system.
-                  (isHome
-                    ? active || hot
-                      ? "text-white"
-                      : "text-white/70 hover:text-white"
-                    : active || hot
-                      ? "text-white"
-                      : "text-white/65 hover:text-white")
+                  // A close text shadow keeps the labels distinct over the
+                  // pond while leaving the scenery visible between letters.
+                  (active
+                    ? "text-[#facc15] underline decoration-2 underline-offset-8"
+                    : hot
+                      ? "text-[#facc15]"
+                      : "text-white hover:text-[#facc15]")
                 }
               >
                 {LABELS[v]}
@@ -387,7 +387,7 @@ export function Nav({
       {isHome && (
         <ul
           aria-label="Explore Rubberduck"
-          className="pointer-events-auto fixed bottom-[max(1.5rem,env(safe-area-inset-bottom))] right-[max(1.25rem,env(safe-area-inset-right))] z-30 flex flex-col items-end gap-2 rounded-[1.4rem] bg-[#06263f]/82 p-3 text-right shadow-[0_18px_38px_-24px_rgba(0,0,0,0.86)] ring-1 ring-white/24 sm:hidden"
+          className="pointer-events-auto fixed bottom-[max(1.5rem,env(safe-area-inset-bottom))] right-[max(1.25rem,env(safe-area-inset-right))] z-30 flex flex-col items-end gap-2 p-3 text-right [text-shadow:0_1px_3px_rgba(0,0,0,0.75),0_2px_12px_rgba(0,0,0,0.3)] sm:hidden"
         >
           {PAGE_VIEWS.map((v) => {
             const hot = hover === v;
@@ -396,6 +396,7 @@ export function Nav({
               <li key={v}>
                 <Link
                   href={HREFS[v]}
+                  prefetch={false}
                   onMouseEnter={() => nav.setHover(v)}
                   onMouseLeave={() => nav.setHover(null)}
                   onFocus={() => nav.setHover(v)}
@@ -407,7 +408,7 @@ export function Nav({
                     nav.setView(v);
                   }}
                   className={
-                    "inline-flex min-h-11 touch-manipulation items-center py-1 font-display text-[clamp(2.4rem,11vw,3.25rem)] leading-[0.88] tracking-tight text-white outline-none transition-[opacity,transform] duration-200 focus-visible:ring-2 focus-visible:ring-[#facc15] focus-visible:ring-offset-4 focus-visible:ring-offset-[#1b7894] motion-reduce:transition-none " +
+                    "inline-flex min-h-11 touch-manipulation items-center py-1 font-display text-[clamp(2.4rem,11vw,3.25rem)] leading-[0.88] tracking-tight text-white outline-none transition-[opacity,transform] duration-200 focus-visible:ring-2 focus-visible:ring-[#facc15] focus-visible:ring-offset-4 focus-visible:ring-offset-transparent motion-reduce:transition-none " +
                     (hot
                       ? "opacity-100"
                       : "opacity-92 active:scale-[0.98] active:opacity-100")
@@ -432,7 +433,7 @@ export function Nav({
           aria-expanded="false"
           aria-controls="mobile-primary-menu"
           onClick={() => setMobileMenuOpen(true)}
-          className="pointer-events-auto fixed right-[max(1rem,env(safe-area-inset-right))] top-[max(1rem,env(safe-area-inset-top))] z-30 inline-flex min-h-11 min-w-11 touch-manipulation items-center justify-center gap-2 rounded-full border border-white/35 bg-[#06263f]/84 px-3 text-sm font-semibold text-white shadow-[0_12px_28px_-18px_rgba(0,0,0,0.9)] outline-none transition-[background-color,transform] duration-200 hover:bg-[#06263f] focus-visible:ring-2 focus-visible:ring-[#facc15] focus-visible:ring-offset-2 focus-visible:ring-offset-[#0b5270] active:scale-[0.97] active:bg-[#031c2e] motion-reduce:transition-none sm:hidden"
+          className="pointer-events-auto fixed right-[max(1rem,env(safe-area-inset-right))] top-[max(1rem,env(safe-area-inset-top))] z-30 inline-flex min-h-11 min-w-11 touch-manipulation items-center justify-center gap-2 rounded-full px-3 text-sm font-semibold text-white [text-shadow:0_1px_3px_rgba(0,0,0,0.75),0_2px_12px_rgba(0,0,0,0.3)] outline-none transition-[color,transform] duration-200 hover:text-[#facc15] focus-visible:ring-2 focus-visible:ring-[#facc15] focus-visible:ring-offset-2 focus-visible:ring-offset-transparent active:scale-[0.97] motion-reduce:transition-none sm:hidden"
         >
           <MenuIcon />
           <span>Menu</span>
@@ -449,11 +450,11 @@ export function Nav({
           onPointerDown={(event) => {
             if (event.target === event.currentTarget) closeMobileMenu(true);
           }}
-          className="pointer-events-auto fixed inset-0 z-40 grid min-h-dvh place-items-center overflow-hidden bg-[#06263f] px-6 py-[max(1.25rem,env(safe-area-inset-top))] text-white sm:hidden"
+          className="pointer-events-auto fixed inset-0 z-40 grid min-h-dvh place-items-center overflow-hidden bg-[#151515] px-6 py-[max(1.25rem,env(safe-area-inset-top))] text-white sm:hidden"
         >
           <div
             aria-hidden="true"
-            className="pointer-events-none absolute inset-0 bg-[radial-gradient(circle_at_76%_12%,rgba(101,201,220,0.3),transparent_38%),radial-gradient(circle_at_18%_86%,rgba(27,120,148,0.58),transparent_44%)]"
+            className="pointer-events-none absolute inset-0 bg-white/[0.025]"
           />
           <button
             type="button"
@@ -478,6 +479,7 @@ export function Nav({
                   <li key={item.view} className="w-full">
                     <Link
                       href={item.href}
+                      prefetch={routeMode ? undefined : false}
                       aria-current={active ? "page" : undefined}
                       onClick={(event) => handleMobileNavigation(event, item.view)}
                       className={

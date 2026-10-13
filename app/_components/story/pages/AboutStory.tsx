@@ -59,17 +59,17 @@ export function AboutStory({ embedded = false }: { embedded?: boolean }) {
             eyebrow={studioApproach.eyebrow}
             title={studioApproach.title}
           />
-          <div className="mt-6 space-y-4 text-lg leading-relaxed text-white/80">
+          <div className="mt-6 space-y-4 text-lg leading-relaxed text-[var(--rd-text-body)]">
             {studioApproach.body.map((paragraph) => (
               <p key={paragraph}>{paragraph}</p>
             ))}
           </div>
 
           <div className="mt-9 border-l-2 border-white/28 pl-5">
-            <p className="text-xs font-semibold tracking-[0.18em] text-white/65 uppercase">
+            <p className="text-xs font-semibold tracking-[0.18em] text-[var(--rd-text-muted)] uppercase">
               {founder.name} · {founder.role}
             </p>
-            <p className="mt-2 text-base leading-relaxed text-white/80">
+            <p className="mt-2 text-base leading-relaxed text-[var(--rd-text-body)]">
               {founder.bio}
             </p>
           </div>
@@ -80,7 +80,7 @@ export function AboutStory({ embedded = false }: { embedded?: boolean }) {
                 <h3 className="font-display text-2xl tracking-tight text-white">
                   {principle.title}
                 </h3>
-                <p className="mt-2 text-sm leading-relaxed text-white/75">
+                <p className="mt-2 text-sm leading-relaxed text-[var(--rd-text-body)]">
                   {principle.note}
                 </p>
               </li>

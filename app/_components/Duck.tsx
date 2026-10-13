@@ -5,6 +5,7 @@ import { useFrame, type ThreeEvent } from "@react-three/fiber";
 import {
   forwardRef,
   useCallback,
+  useEffect,
   useImperativeHandle,
   useMemo,
   useRef,
@@ -17,9 +18,6 @@ import {
   waterWakeImpulses,
 } from "../_state/waterInteraction";
 import { useView } from "../_state/navigation";
-
-// Preload at module load so the GLB starts fetching before any <Duck> mounts.
-useGLTF.preload("/models/duck.glb");
 
 // Keep the paddle rhythm visibly alive without turning the pond into a busy
 // animation. The travel controller supplies the actual glide; this is only a
@@ -387,8 +385,9 @@ function DuckModel({
 }) {
   const { scene } = useGLTF("/models/duck.glb");
   const underwater = useView() !== "home";
-  const cloned = useMemo(() => {
+  const { cloned, materials } = useMemo(() => {
     const c = scene.clone(true);
+    const materialClones = new Map<THREE.Material, THREE.Material>();
     // THREE's clone() shares material *instances* across every clone (and
     // with the navbar duck, which loads the same cached GLB). We animate
     // opacity per-duck for the blur-out, so give each clone its own
@@ -401,6 +400,8 @@ function DuckModel({
       // Clone materials (see above) and flag them transparent up front so the
       // blur-out can animate their opacity at runtime.
       const dup = (m: THREE.Material) => {
+        const existing = materialClones.get(m);
+        if (existing) return existing;
         const cm = m.clone();
         cm.transparent = true;
         // "Wet" the submerged part of the duck directly on its own material,
@@ -458,6 +459,7 @@ function DuckModel({
               #include <dithering_fragment>`,
             );
         };
+        materialClones.set(m, cm);
         return cm;
       };
       mesh.material = Array.isArray(mesh.material)
@@ -476,13 +478,22 @@ function DuckModel({
       c.position.y = -center.y * fitScale + yLift;
       c.position.z = -center.z * fitScale;
     }
-    return c;
+    return { cloned: c, materials: Array.from(materialClones.values()) };
   }, [scene, scale, submergedFraction]);
 
+  const materialsRef = useRef(materials);
+  useEffect(() => {
+    materialsRef.current = materials;
+    return () => {
+      // Only the materials belong to this instance. Geometry and textures are
+      // loader-cached and still shared with every other duck.
+      for (const material of materials) material.dispose();
+    };
+  }, [materials]);
+
   // Smoothly lerp opacity toward the target (0 when hidden) for the blur-out.
-  // We drive it through a group ref and traverse to reach the materials —
-  // per-frame imperative mutation is the R3F way, and going via the ref keeps
-  // it clear this is intentional runtime animation, not render-time state.
+  // Keep the material list from construction, rather than traversing four
+  // complete model graphs and allocating arrays on every animation frame.
   // Once fully dissolved we flip `visible` off so the duck also drops out of
   // the water's reflection pass and stops costing draw time.
   const rootRef = useRef<THREE.Group>(null);
@@ -491,33 +502,35 @@ function DuckModel({
     const root = rootRef.current;
     if (!root) return;
     const target = hidden ? 0 : 1;
-    opacityRef.current = THREE.MathUtils.lerp(opacityRef.current, target, 0.09);
+    opacityRef.current = THREE.MathUtils.lerp(
+      opacityRef.current,
+      target,
+      1 - Math.exp(-5.66 * Math.min(delta, 0.1)),
+    );
+    if (Math.abs(opacityRef.current - target) < 0.001) opacityRef.current = target;
     const o = opacityRef.current;
     root.visible = o > 0.02;
-    root.traverse((obj) => {
-      const mesh = obj as THREE.Mesh;
-      if (!mesh.isMesh || !mesh.material) return;
-      const m = mesh.material as THREE.Material | THREE.Material[];
-      (Array.isArray(m) ? m : [m]).forEach((mm) => {
-        mm.opacity = o;
-        const duckMaterial = mm as THREE.Material & {
-          userData: {
-            duckWaterShader?: THREE.WebGLProgramParametersWithUniforms;
-          };
+    const blend = 1 - Math.pow(0.002, delta);
+    for (const mm of materialsRef.current) {
+      // Three.js materials are intentionally animated outside React's render.
+      // eslint-disable-next-line react-hooks/immutability
+      mm.opacity = o;
+      const duckMaterial = mm as THREE.Material & {
+        userData: {
+          duckWaterShader?: THREE.WebGLProgramParametersWithUniforms;
         };
-        const tint = duckMaterial.userData.duckWaterShader?.uniforms
-          .uUnderwater;
-        if (tint) {
-          const blend = 1 - Math.pow(0.002, delta);
-          tint.value += ((underwater ? 1 : 0) - tint.value) * blend;
-        }
-      });
-    });
+      };
+      const tint = duckMaterial.userData.duckWaterShader?.uniforms
+        .uUnderwater;
+      if (tint) {
+        tint.value += ((underwater ? 1 : 0) - tint.value) * blend;
+      }
+    }
   });
 
   return (
     <group ref={rootRef}>
-      <primitive object={cloned} />
+      <primitive object={cloned} dispose={null} />
     </group>
   );
 }

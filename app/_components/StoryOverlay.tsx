@@ -1,10 +1,34 @@
 "use client";
 
 import { useEffect, useRef, useState } from "react";
+import dynamic from "next/dynamic";
 import { useView, type View } from "../_state/navigation";
-import { AboutStory } from "./story/pages/AboutStory";
-import { ContactStory } from "./story/pages/ContactStory";
-import { WorkStory } from "./story/pages/WorkStory";
+
+function StoryLoading() {
+  return (
+    <div role="status" className="mx-auto max-w-6xl px-6 py-16 text-white">
+      <span className="inline-flex rounded-full bg-black/70 px-5 py-3 text-sm font-semibold">
+        Loading page…
+      </span>
+    </div>
+  );
+}
+
+// Home navigation can open any story, but only the selected story needs to
+// ship to the browser. Direct routes still render their complete copy on the
+// server; these separate bundles are solely for the in-place home overlay.
+const AboutStory = dynamic(
+  () => import("./story/pages/AboutStory").then((module) => module.AboutStory),
+  { loading: StoryLoading },
+);
+const ContactStory = dynamic(
+  () => import("./story/pages/ContactStory").then((module) => module.ContactStory),
+  { loading: StoryLoading },
+);
+const WorkStory = dynamic(
+  () => import("./story/pages/WorkStory").then((module) => module.WorkStory),
+  { loading: StoryLoading },
+);
 
 /* The in-app transition + content layer.
  *
@@ -19,43 +43,31 @@ import { WorkStory } from "./story/pages/WorkStory";
 export function StoryOverlay() {
   const view = useView();
   const active = view !== "home";
-  // Keep the last page mounted while the panel drains back down.
+  // Keep the previous story during transitions between reading views.
+  // Home removes the entire reading layer immediately.
   const [rendered, setRendered] = useState<View>("home");
   const [contentPhase, setContentPhase] = useState<
     "idle" | "leaving" | "entering"
   >("idle");
-  const [surfaceVisible, setSurfaceVisible] = useState(active);
   const scrollRef = useRef<HTMLDivElement>(null);
 
   useEffect(() => {
+    if (!active && rendered === "home") return;
+
     const reduce = window.matchMedia("(prefers-reduced-motion: reduce)").matches;
     let frame: number | null = null;
-    let visibilityFrame: number | null = null;
     let timer: number | null = null;
 
     const schedulePhase = (next: "idle" | "leaving" | "entering") => {
       frame = window.requestAnimationFrame(() => setContentPhase(next));
     };
 
-    const scheduleVisibility = (next: boolean) => {
-      visibilityFrame = window.requestAnimationFrame(() => setSurfaceVisible(next));
-    };
-
     if (!active) {
-      if (reduce) {
-        frame = window.requestAnimationFrame(() => {
-          setContentPhase("idle");
-          setSurfaceVisible(false);
-        });
-      } else {
-        schedulePhase("leaving");
-        timer = window.setTimeout(() => {
-          setSurfaceVisible(false);
-          window.requestAnimationFrame(() => setContentPhase("idle"));
-        }, 140);
-      }
+      frame = window.requestAnimationFrame(() => {
+        setContentPhase("idle");
+        setRendered("home");
+      });
     } else if (view !== rendered) {
-      scheduleVisibility(true);
       if (reduce) {
         frame = window.requestAnimationFrame(() => {
           setRendered(view);
@@ -72,17 +84,12 @@ export function StoryOverlay() {
     } else if (reduce) {
       schedulePhase("idle");
     } else {
-      scheduleVisibility(true);
       schedulePhase("entering");
-      timer = window.setTimeout(
-        () => window.requestAnimationFrame(() => setContentPhase("idle")),
-        320,
-      );
+      timer = window.setTimeout(() => setContentPhase("idle"), 320);
     }
 
     return () => {
       if (frame !== null) window.cancelAnimationFrame(frame);
-      if (visibilityFrame !== null) window.cancelAnimationFrame(visibilityFrame);
       if (timer !== null) window.clearTimeout(timer);
     };
   }, [view, active, rendered]);
@@ -90,27 +97,42 @@ export function StoryOverlay() {
   useEffect(() => {
     if (!active || rendered === "home") return;
 
+    const root = scrollRef.current;
+    if (!root) return;
+
+    let observer: MutationObserver | undefined;
+    const focusHeading = () => {
+      const heading = root.querySelector<HTMLElement>("h1");
+      if (!heading) return false;
+      heading.focus({ preventScroll: true });
+      observer?.disconnect();
+      return true;
+    };
+
     const frame = window.requestAnimationFrame(() => {
-      scrollRef.current
-        ?.querySelector<HTMLElement>("h1")
-        ?.focus({ preventScroll: true });
+      if (focusHeading()) return;
+      // The selected story may still be downloading on its first visit.
+      // Transfer focus as soon as its real heading replaces the status text.
+      observer = new MutationObserver(focusHeading);
+      observer.observe(root, { childList: true, subtree: true });
     });
 
-    return () => window.cancelAnimationFrame(frame);
+    return () => {
+      window.cancelAnimationFrame(frame);
+      observer?.disconnect();
+    };
   }, [active, rendered]);
+
+  // Do not leave a hidden full-screen scrim behind the home controls. Its
+  // lifetime follows the selected tab, not delayed animation state.
+  if (!active) return null;
 
   return (
     <div
       ref={scrollRef}
       data-story-scroll
-      aria-hidden={!active}
-      inert={!active}
-      className={
-        "fixed inset-0 z-10 overflow-x-hidden " +
-        (surfaceVisible
-          ? "visible pointer-events-auto overflow-y-auto"
-          : "invisible pointer-events-none overflow-y-hidden")
-      }
+      data-story-open="true"
+      className="fixed inset-0 z-10 overflow-x-hidden overflow-y-auto"
     >
       <div
         key={rendered}

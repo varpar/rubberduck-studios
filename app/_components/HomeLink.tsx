@@ -11,7 +11,7 @@ import { nav, useView } from "../_state/navigation";
 export function HomeLink({ routeMode = false }: { routeMode?: boolean }) {
   const view = useView();
   const shell =
-    "font-heading inline-flex min-h-11 items-center rounded-full bg-[#06263f]/86 px-3 py-1.5 text-3xl font-bold tracking-tight text-white shadow-[0_12px_28px_-20px_rgba(0,0,0,0.82)] ring-1 ring-white/25 sm:text-4xl";
+    "font-heading inline-flex min-h-11 items-center rounded-full px-3 py-1.5 text-3xl font-bold tracking-tight text-white [text-shadow:0_1px_3px_rgba(0,0,0,0.75),0_2px_12px_rgba(0,0,0,0.3)] sm:text-4xl";
 
   return (
     <div className="pointer-events-none absolute left-[max(1.25rem,env(safe-area-inset-left))] top-[max(1.25rem,env(safe-area-inset-top))] z-20 sm:left-10 sm:top-10">
@@ -21,7 +21,7 @@ export function HomeLink({ routeMode = false }: { routeMode?: boolean }) {
           aria-label="Back to the Rubberduck home page"
           className={
             shell +
-            " pointer-events-auto transition-colors duration-200 hover:bg-[#06263f] focus-visible:ring-2 focus-visible:ring-[#facc15] focus-visible:ring-offset-2 focus-visible:ring-offset-[#0b5270] focus-visible:outline-none motion-reduce:transition-none"
+            " pointer-events-auto transition-colors duration-200 hover:text-[#facc15] focus-visible:ring-2 focus-visible:ring-[#facc15] focus-visible:ring-offset-2 focus-visible:ring-offset-transparent focus-visible:outline-none motion-reduce:transition-none"
           }
         >
           rubberduck
@@ -35,7 +35,7 @@ export function HomeLink({ routeMode = false }: { routeMode?: boolean }) {
           aria-label="Back to home"
           className={
             shell +
-            " pointer-events-auto transition-colors duration-200 hover:bg-[#06263f] focus-visible:ring-2 focus-visible:ring-[#facc15] focus-visible:ring-offset-2 focus-visible:ring-offset-[#0b5270] focus-visible:outline-none motion-reduce:transition-none"
+            " pointer-events-auto transition-colors duration-200 hover:text-[#facc15] focus-visible:ring-2 focus-visible:ring-[#facc15] focus-visible:ring-offset-2 focus-visible:ring-offset-transparent focus-visible:outline-none motion-reduce:transition-none"
           }
         >
           rubberduck
